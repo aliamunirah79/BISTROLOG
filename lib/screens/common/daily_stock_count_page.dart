@@ -22,13 +22,11 @@ class DailyStockCountPage extends StatefulWidget {
 class _DailyStockCountPageState extends State<DailyStockCountPage> {
   final supabase = Supabase.instance.client;
 
-  final remarksController = TextEditingController();
   final searchController = TextEditingController();
-  final ScrollController contentScrollController = ScrollController();
+  final remarksController = TextEditingController();
 
   bool isLoading = true;
   bool isSubmitting = false;
-  bool showFloatingSearch = false;
 
   DailyCountType selectedType = DailyCountType.opening;
 
@@ -36,12 +34,11 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   String selectedCategory = 'All';
 
   List<Map<String, dynamic>> inventoryItems = [];
+  List<Map<String, dynamic>> inventoryBatches = [];
 
   Map<String, Map<String, dynamic>> openingCounts = {};
   Map<String, Map<String, dynamic>> closingCounts = {};
-
   Map<String, num> enteredQuantities = {};
-  final Map<String, GlobalKey> categoryKeys = {};
 
   static const Color mulberry = Color(0xFF6D2B50);
   static const Color mulberryDark = Color(0xFF4A1A35);
@@ -55,8 +52,6 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     super.initState();
     loadData();
 
-    contentScrollController.addListener(handleScroll);
-
     searchController.addListener(() {
       if (!mounted) return;
 
@@ -68,25 +63,13 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
 
   @override
   void dispose() {
-    remarksController.dispose();
     searchController.dispose();
-    contentScrollController.removeListener(handleScroll);
-    contentScrollController.dispose();
+    remarksController.dispose();
     super.dispose();
   }
 
   String get today {
     return DateTime.now().toIso8601String().substring(0, 10);
-  }
-
-  String get selectedCountTypeText {
-    return selectedType == DailyCountType.opening ? 'opening' : 'closing';
-  }
-
-  String get selectedTitle {
-    return selectedType == DailyCountType.opening
-        ? 'Opening Stock Count'
-        : 'Closing Stock Count';
   }
 
   bool get isOpening {
@@ -97,51 +80,12 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     return selectedType == DailyCountType.closing;
   }
 
-  void handleScroll() {
-    final shouldShowSearch =
-        contentScrollController.hasClients && contentScrollController.offset > 78;
-
-    if (shouldShowSearch != showFloatingSearch) {
-      setState(() {
-        showFloatingSearch = shouldShowSearch;
-      });
-    }
-
-    updateCategoryFromScroll();
+  String get selectedCountTypeText {
+    return isOpening ? 'opening' : 'closing';
   }
 
-  void updateCategoryFromScroll() {
-    if (searchQuery.trim().isNotEmpty) return;
-
-    final categories = getCategories().where((c) => c != 'All').toList();
-
-    if (categories.isEmpty) return;
-
-    String? activeCategory;
-    double closestTop = double.negativeInfinity;
-
-    for (final category in categories) {
-      final key = categoryKeys[category];
-      final context = key?.currentContext;
-
-      if (context == null) continue;
-
-      final box = context.findRenderObject() as RenderBox?;
-      if (box == null || !box.attached) continue;
-
-      final position = box.localToGlobal(Offset.zero).dy;
-
-      if (position <= 210 && position > closestTop) {
-        closestTop = position;
-        activeCategory = category;
-      }
-    }
-
-    if (activeCategory != null && activeCategory != selectedCategory) {
-      setState(() {
-        selectedCategory = activeCategory!;
-      });
-    }
+  String get selectedTitle {
+    return isOpening ? 'Opening Stock Count' : 'Closing Stock Count';
   }
 
   Future<void> loadData() async {
@@ -159,6 +103,14 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
           .order('category', ascending: true)
           .order('item_name', ascending: true);
 
+      final batchResponse = await supabase
+          .from('inventory_batches')
+          .select()
+          .eq('is_active', true)
+          .gt('remaining_quantity', 0)
+          .order('expiry_date', ascending: true)
+          .order('received_date', ascending: true);
+
       final openingResponse = await supabase
           .from('daily_stock_counts')
           .select()
@@ -172,6 +124,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
           .eq('count_type', 'closing');
 
       final items = List<Map<String, dynamic>>.from(itemsResponse);
+      final batches = List<Map<String, dynamic>>.from(batchResponse);
       final openingList = List<Map<String, dynamic>>.from(openingResponse);
       final closingList = List<Map<String, dynamic>>.from(closingResponse);
 
@@ -179,7 +132,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
       final Map<String, Map<String, dynamic>> closingMap = {};
 
       for (final count in openingList) {
-        final itemId = count['item_id']?.toString() ?? '';
+        final itemId = (count['item_id'] ?? '').toString();
 
         if (itemId.isNotEmpty) {
           openingMap[itemId] = count;
@@ -187,7 +140,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
       }
 
       for (final count in closingList) {
-        final itemId = count['item_id']?.toString() ?? '';
+        final itemId = (count['item_id'] ?? '').toString();
 
         if (itemId.isNotEmpty) {
           closingMap[itemId] = count;
@@ -198,10 +151,10 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
 
       for (final item in items) {
         final itemId = getItemId(item);
-        final existing = isOpening ? openingMap[itemId] : closingMap[itemId];
+        final existingCount = isOpening ? openingMap[itemId] : closingMap[itemId];
 
-        if (existing != null) {
-          currentEntered[itemId] = getCountQuantity(existing);
+        if (existingCount != null) {
+          currentEntered[itemId] = getCountQuantity(existingCount);
         }
       }
 
@@ -209,6 +162,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
 
       setState(() {
         inventoryItems = items;
+        inventoryBatches = batches;
         openingCounts = openingMap;
         closingCounts = closingMap;
         enteredQuantities = currentEntered;
@@ -266,52 +220,6 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     return (item['supplier'] ?? item['supplier_name'] ?? '').toString();
   }
 
-  String getExpiryDate(Map<String, dynamic> item) {
-    final value = item['expiry_date'] ?? item['expiration_date'];
-
-    if (value == null || value.toString().trim().isEmpty) {
-      return '';
-    }
-
-    return value.toString().substring(0, 10);
-  }
-
-  DateTime? parseDate(String value) {
-    if (value.trim().isEmpty) {
-      return null;
-    }
-
-    return DateTime.tryParse(value.trim());
-  }
-
-  bool isExpired(Map<String, dynamic> item) {
-    final expiry = parseDate(getExpiryDate(item));
-
-    if (expiry == null) {
-      return false;
-    }
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
-
-    return expiryDay.isBefore(today);
-  }
-
-  bool isExpiringSoon(Map<String, dynamic> item) {
-    final expiry = parseDate(getExpiryDate(item));
-
-    if (expiry == null || isExpired(item)) {
-      return false;
-    }
-
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
-
-    return expiryDay.difference(today).inDays <= 7;
-  }
-
   num getCurrentQuantity(Map<String, dynamic> item) {
     final value = item['current_quantity'] ??
         item['quantity'] ??
@@ -335,34 +243,26 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   }
 
   num getCountQuantity(Map<String, dynamic>? count) {
-    if (count == null) {
-      return 0;
-    }
+    if (count == null) return 0;
 
     final value = count['quantity'] ?? count['counted_quantity'] ?? 0;
     return num.tryParse(value.toString()) ?? 0;
   }
 
   String getReviewStatus(Map<String, dynamic>? count) {
-    if (count == null) {
-      return 'not_submitted';
-    }
+    if (count == null) return 'not_submitted';
 
     return (count['review_status'] ?? 'pending').toString();
   }
 
   bool isInventoryDeducted(Map<String, dynamic>? count) {
-    if (count == null) {
-      return false;
-    }
+    if (count == null) return false;
 
     return count['inventory_deducted'] == true;
   }
 
   String formatNumber(dynamic value) {
-    if (value == null) {
-      return '0';
-    }
+    if (value == null) return '0';
 
     final number = num.tryParse(value.toString()) ?? 0;
 
@@ -373,23 +273,154 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     return number.toString();
   }
 
-  IconData getCategoryIcon(String category) {
-    final lower = category.toLowerCase();
+  String formatValue(String value) {
+    final cleaned = value.trim();
 
-    if (category == 'All') return Icons.grid_view;
-    if (lower.contains('beverage')) return Icons.local_drink;
-    if (lower.contains('dairy')) return Icons.local_cafe;
-    if (lower.contains('syrup')) return Icons.liquor;
-    if (lower.contains('fruit')) return Icons.spa;
-    if (lower.contains('bakery')) return Icons.bakery_dining;
-    if (lower.contains('cake')) return Icons.cake;
-    if (lower.contains('dessert')) return Icons.icecream;
-    if (lower.contains('hot')) return Icons.lunch_dining;
-    if (lower.contains('dry')) return Icons.inventory_2;
-    if (lower.contains('sauce')) return Icons.kitchen;
-    if (lower.contains('packaging')) return Icons.takeout_dining;
+    if (cleaned.isEmpty) return '-';
 
-    return Icons.category;
+    return cleaned
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
+
+  String getBatchItemId(Map<String, dynamic> batch) {
+    return (batch['item_id'] ?? '').toString();
+  }
+
+  num getBatchRemainingQuantity(Map<String, dynamic> batch) {
+    final value = batch['remaining_quantity'] ?? 0;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  String getBatchExpiryDate(Map<String, dynamic> batch) {
+    final value = batch['expiry_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '-';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  String getBatchReceivedDate(Map<String, dynamic> batch) {
+    final value = batch['received_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '-';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  List<Map<String, dynamic>> getBatchesForItem(String itemId) {
+    final batches = inventoryBatches.where((batch) {
+      return getBatchItemId(batch) == itemId &&
+          getBatchRemainingQuantity(batch) > 0;
+    }).toList();
+
+    batches.sort((a, b) {
+      final aExpiry = getBatchExpiryDate(a);
+      final bExpiry = getBatchExpiryDate(b);
+
+      final expiryCompare = aExpiry.compareTo(bExpiry);
+
+      if (expiryCompare != 0) {
+        return expiryCompare;
+      }
+
+      final aReceived = getBatchReceivedDate(a);
+      final bReceived = getBatchReceivedDate(b);
+
+      return aReceived.compareTo(bReceived);
+    });
+
+    return batches;
+  }
+
+  Map<String, dynamic>? getRecommendedBatch(String itemId) {
+    final batches = getBatchesForItem(itemId);
+
+    if (batches.isEmpty) return null;
+
+    return batches.first;
+  }
+
+  String getFifoPreviewText({
+    required String itemId,
+    required num usedQuantity,
+    required String unit,
+  }) {
+    if (usedQuantity <= 0) {
+      return 'No stock deduction needed.';
+    }
+
+    final batches = getBatchesForItem(itemId);
+
+    if (batches.isEmpty) {
+      return 'No active batch found for FIFO deduction.';
+    }
+
+    num remainingNeed = usedQuantity;
+    final List<String> lines = [];
+
+    for (final batch in batches) {
+      if (remainingNeed <= 0) break;
+
+      final batchQty = getBatchRemainingQuantity(batch);
+      final deductQty = remainingNeed > batchQty ? batchQty : remainingNeed;
+      final expiry = getBatchExpiryDate(batch);
+
+      lines.add(
+        '${formatNumber(deductQty)} $unit from batch expiring $expiry',
+      );
+
+      remainingNeed -= deductQty;
+    }
+
+    if (remainingNeed > 0) {
+      lines.add(
+        'Short by ${formatNumber(remainingNeed)} $unit because batch stock is not enough.',
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  bool isExpiredBatch(Map<String, dynamic> batch) {
+    final expiryText = getBatchExpiryDate(batch);
+
+    if (expiryText == '-') return false;
+
+    final expiry = DateTime.tryParse(expiryText);
+
+    if (expiry == null) return false;
+
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final expiryDate = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDate.isBefore(todayDate);
+  }
+
+  bool isExpiringSoonBatch(Map<String, dynamic> batch) {
+    final expiryText = getBatchExpiryDate(batch);
+
+    if (expiryText == '-') return false;
+
+    final expiry = DateTime.tryParse(expiryText);
+
+    if (expiry == null) return false;
+
+    final now = DateTime.now();
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final expiryDate = DateTime(expiry.year, expiry.month, expiry.day);
+
+    if (expiryDate.isBefore(todayDate)) return false;
+
+    return expiryDate.difference(todayDate).inDays <= 7;
   }
 
   List<String> getCategories() {
@@ -404,47 +435,36 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     return ['All', ...categories];
   }
 
-  List<Map<String, dynamic>> getSearchFilteredItems() {
-    if (searchQuery.trim().isEmpty) {
-      return inventoryItems;
+  List<Map<String, dynamic>> getFilteredItems() {
+    List<Map<String, dynamic>> filtered = inventoryItems;
+
+    if (selectedCategory != 'All') {
+      filtered = filtered.where((item) {
+        return getCategory(item) == selectedCategory;
+      }).toList();
     }
 
-    final query = searchQuery.toLowerCase();
+    if (searchQuery.trim().isNotEmpty) {
+      final query = searchQuery.toLowerCase();
 
-    return inventoryItems.where((item) {
-      final name = getItemName(item).toLowerCase();
-      final category = getCategory(item).toLowerCase();
-      final barcode = getBarcode(item).toLowerCase();
-      final supplier = getSupplier(item).toLowerCase();
-      final expiryDate = getExpiryDate(item).toLowerCase();
+      filtered = filtered.where((item) {
+        final itemId = getItemId(item);
+        final name = getItemName(item).toLowerCase();
+        final category = getCategory(item).toLowerCase();
+        final barcode = getBarcode(item).toLowerCase();
+        final supplier = getSupplier(item).toLowerCase();
+        final batch = getRecommendedBatch(itemId);
+        final expiry = batch == null ? '' : getBatchExpiryDate(batch);
 
-      return name.contains(query) ||
-          category.contains(query) ||
-          barcode.contains(query) ||
-          supplier.contains(query) ||
-          expiryDate.contains(query);
-    }).toList();
-  }
-
-  Map<String, List<Map<String, dynamic>>> getGroupedItems() {
-    final sourceItems = getSearchFilteredItems();
-    final grouped = <String, List<Map<String, dynamic>>>{};
-
-    for (final item in sourceItems) {
-      final category = getCategory(item);
-      grouped.putIfAbsent(category, () => []);
-      grouped[category]!.add(item);
+        return name.contains(query) ||
+            category.contains(query) ||
+            barcode.contains(query) ||
+            supplier.contains(query) ||
+            expiry.contains(query);
+      }).toList();
     }
 
-    for (final list in grouped.values) {
-      list.sort((a, b) => getItemName(a).compareTo(getItemName(b)));
-    }
-
-    final sortedKeys = grouped.keys.toList()..sort();
-
-    return {
-      for (final key in sortedKeys) key: grouped[key]!,
-    };
+    return filtered;
   }
 
   int getEnteredCount() {
@@ -464,9 +484,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   num? getOpeningQuantity(String itemId) {
     final opening = openingCounts[itemId];
 
-    if (opening == null) {
-      return null;
-    }
+    if (opening == null) return null;
 
     return getCountQuantity(opening);
   }
@@ -474,9 +492,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   num? getClosingQuantity(String itemId) {
     final closing = closingCounts[itemId];
 
-    if (closing == null) {
-      return null;
-    }
+    if (closing == null) return null;
 
     return getCountQuantity(closing);
   }
@@ -485,71 +501,27 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     final openingQty = getOpeningQuantity(itemId);
     final closingQty = enteredQuantities[itemId] ?? getClosingQuantity(itemId);
 
-    if (openingQty == null || closingQty == null) {
-      return 0;
-    }
+    if (openingQty == null || closingQty == null) return 0;
 
     return openingQty - closingQty;
-  }
-
-  bool isApprovedClosing(String itemId) {
-    final closing = closingCounts[itemId];
-
-    if (closing == null) {
-      return false;
-    }
-
-    return getReviewStatus(closing) == 'approved' &&
-        isInventoryDeducted(closing);
   }
 
   Future<void> changeCountType(DailyCountType type) async {
     setState(() {
       selectedType = type;
       selectedCategory = 'All';
-      searchController.clear();
       searchQuery = '';
+      searchController.clear();
       remarksController.clear();
     });
 
     await loadData();
   }
 
-  void jumpToCategory(String category) {
-    setState(() {
-      selectedCategory = category;
-    });
-
-    if (category == 'All') {
-      if (contentScrollController.hasClients) {
-        contentScrollController.animateTo(
-          0,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOut,
-        );
-      }
-      return;
-    }
-
-    final key = categoryKeys[category];
-    final context = key?.currentContext;
-
-    if (context != null) {
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOut,
-        alignment: 0.02,
-      );
-    }
-  }
-
   void clearSearch() {
-    searchController.clear();
-
     setState(() {
       searchQuery = '';
-      selectedCategory = 'All';
+      searchController.clear();
     });
   }
 
@@ -558,9 +530,8 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
 
     if (code.isEmpty) return;
 
-    searchController.text = code;
-
     setState(() {
+      searchController.text = code;
       searchQuery = code;
       selectedCategory = 'All';
     });
@@ -622,7 +593,6 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                       MobileScanner(
                         onDetect: (capture) {
                           if (detected) return;
-
                           if (capture.barcodes.isEmpty) return;
 
                           final code = capture.barcodes.first.rawValue;
@@ -679,86 +649,6 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     );
   }
 
-  void openSearchPanel() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: cream,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(24),
-        ),
-      ),
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            18,
-            18,
-            18,
-            MediaQuery.of(sheetContext).viewInsets.bottom + 20,
-          ),
-          child: SafeArea(
-            child: TextField(
-              autofocus: true,
-              controller: searchController,
-              style: const TextStyle(
-                color: mulberryDark,
-                fontWeight: FontWeight.w600,
-              ),
-              decoration: InputDecoration(
-                hintText: 'Search item, barcode or supplier...',
-                prefixIcon: const Icon(
-                  Icons.search,
-                  color: mulberry,
-                ),
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (searchController.text.trim().isNotEmpty)
-                      IconButton(
-                        tooltip: 'Clear search',
-                        onPressed: clearSearch,
-                        icon: const Icon(
-                          Icons.close,
-                          color: mulberry,
-                        ),
-                      ),
-                    IconButton(
-                      tooltip: 'Scan barcode',
-                      onPressed: () {
-                        Navigator.pop(sheetContext);
-                        openBarcodeScanner();
-                      },
-                      icon: const Icon(
-                        Icons.qr_code_scanner,
-                        color: mulberry,
-                      ),
-                    ),
-                  ],
-                ),
-                filled: true,
-                fillColor: softWhite,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide(
-                    color: creamDark.withOpacity(0.85),
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: const BorderSide(
-                    color: mulberry,
-                    width: 1.8,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> showQuantityDialog(Map<String, dynamic> item) async {
     final itemId = getItemId(item);
     final itemName = getItemName(item);
@@ -766,8 +656,8 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     final currentStock = getCurrentQuantity(item);
     final openingQty = getOpeningQuantity(itemId);
     final existingEntered = enteredQuantities[itemId];
-
     final existingClosing = closingCounts[itemId];
+    final recommendedBatch = getRecommendedBatch(itemId);
 
     if (isClosing && getReviewStatus(existingClosing) == 'approved') {
       showMessage(
@@ -777,7 +667,8 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
       return;
     }
 
-    String quantityText = existingEntered == null ? '' : formatNumber(existingEntered);
+    String quantityText =
+        existingEntered == null ? '' : formatNumber(existingEntered);
 
     await showModalBottomSheet(
       context: context,
@@ -850,14 +741,26 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                         const SizedBox(height: 18),
                         buildDialogInfoRow(
                           'Inventory Stock',
-                          '$currentStock $unit',
+                          '${formatNumber(currentStock)} $unit',
                         ),
+                        if (recommendedBatch != null)
+                          buildDialogInfoRow(
+                            'FIFO Batch',
+                            '${formatNumber(getBatchRemainingQuantity(recommendedBatch))} $unit • Exp: ${getBatchExpiryDate(recommendedBatch)}',
+                            valueColor: Colors.green.shade700,
+                          )
+                        else
+                          buildDialogInfoRow(
+                            'FIFO Batch',
+                            'No active batch found',
+                            valueColor: Colors.red,
+                          ),
                         if (isClosing)
                           buildDialogInfoRow(
                             'Opening Quantity',
                             openingQty == null
                                 ? 'Not entered yet'
-                                : '$openingQty $unit',
+                                : '${formatNumber(openingQty)} $unit',
                             valueColor:
                                 openingQty == null ? Colors.red : mulberryDark,
                           ),
@@ -922,12 +825,13 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                                   ? 'Opening quantity is required before closing.'
                                   : usedQty < 0
                                       ? 'Closing balance cannot be more than opening quantity.'
-                                      : 'Used today: ${formatNumber(usedQty)} $unit. Inventory will be deducted only after approval.',
+                                      : 'Used today: ${formatNumber(usedQty)} $unit.\n\nFIFO preview:\n${getFifoPreviewText(itemId: itemId, usedQuantity: usedQty, unit: unit)}\n\nInventory will be deducted only after approval.',
                               style: TextStyle(
                                 color: usedQty != null && usedQty < 0
                                     ? Colors.red
                                     : Colors.orange.shade900,
                                 fontWeight: FontWeight.bold,
+                                height: 1.35,
                               ),
                             ),
                           ),
@@ -938,7 +842,8 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                           height: 50,
                           child: ElevatedButton.icon(
                             onPressed: () {
-                              final quantity = num.tryParse(quantityText.trim());
+                              final quantity =
+                                  num.tryParse(quantityText.trim());
 
                               if (quantity == null || quantity < 0) {
                                 showMessage(
@@ -1167,9 +1072,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
 
       final userList = List<Map<String, dynamic>>.from(users);
 
-      if (userList.isEmpty) {
-        return;
-      }
+      if (userList.isEmpty) return;
 
       final notifications = userList.map((user) {
         return {
@@ -1357,68 +1260,99 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   }
 
   Widget buildSearchBox() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
-      child: showFloatingSearch
-          ? const SizedBox.shrink()
-          : Padding(
-              key: const ValueKey('search_box'),
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-              child: TextField(
-                controller: searchController,
-                style: const TextStyle(
-                  color: mulberryDark,
-                  fontWeight: FontWeight.w500,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Search item, barcode or supplier...',
-                  hintStyle: TextStyle(
-                    color: Colors.grey.shade500,
-                  ),
-                  prefixIcon: const Icon(
-                    Icons.search,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      child: TextField(
+        controller: searchController,
+        style: const TextStyle(
+          color: mulberryDark,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          hintText: 'Search item, barcode, supplier or expiry...',
+          hintStyle: TextStyle(
+            color: Colors.grey.shade500,
+          ),
+          prefixIcon: const Icon(
+            Icons.search,
+            color: mulberry,
+          ),
+          suffixIcon: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (searchController.text.trim().isNotEmpty)
+                IconButton(
+                  tooltip: 'Clear search',
+                  onPressed: clearSearch,
+                  icon: const Icon(
+                    Icons.close,
                     color: mulberry,
                   ),
-                  suffixIcon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (searchController.text.trim().isNotEmpty)
-                        IconButton(
-                          tooltip: 'Clear search',
-                          onPressed: clearSearch,
-                          icon: const Icon(
-                            Icons.close,
-                            color: mulberry,
-                          ),
-                        ),
-                      IconButton(
-                        tooltip: 'Scan barcode',
-                        onPressed: openBarcodeScanner,
-                        icon: const Icon(
-                          Icons.qr_code_scanner,
-                          color: mulberry,
-                        ),
-                      ),
-                    ],
-                  ),
-                  filled: true,
-                  fillColor: softWhite,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: BorderSide(
-                      color: creamDark.withOpacity(0.85),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
-                    borderSide: const BorderSide(
-                      color: mulberry,
-                      width: 1.8,
-                    ),
-                  ),
+                ),
+              IconButton(
+                tooltip: 'Scan barcode',
+                onPressed: openBarcodeScanner,
+                icon: const Icon(
+                  Icons.qr_code_scanner,
+                  color: mulberry,
                 ),
               ),
+            ],
+          ),
+          filled: true,
+          fillColor: softWhite,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(
+              color: creamDark.withOpacity(0.85),
             ),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(
+              color: mulberry,
+              width: 1.8,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildCategoryFilter() {
+    final categories = getCategories();
+
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final category = categories[index];
+          final selected = selectedCategory == category;
+
+          return ChoiceChip(
+            label: Text(category),
+            selected: selected,
+            selectedColor: mulberry,
+            backgroundColor: softWhite,
+            side: BorderSide(
+              color: selected ? mulberry : creamDark,
+            ),
+            labelStyle: TextStyle(
+              color: selected ? cream : mulberry,
+              fontWeight: FontWeight.bold,
+            ),
+            onSelected: (_) {
+              setState(() {
+                selectedCategory = category;
+              });
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -1458,113 +1392,26 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     );
   }
 
-  Widget buildCategorySidebar() {
-    final categories = getCategories();
+  Widget buildItemList() {
+    final items = getFilteredItems();
 
-    return Container(
-      width: 96,
-      decoration: BoxDecoration(
-        color: softWhite,
-        border: Border(
-          right: BorderSide(
-            color: creamDark.withOpacity(0.75),
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 90),
+        child: Center(
+          child: Text(
+            'No inventory item found.',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
-      ),
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(6, 12, 6, 100),
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          final category = categories[index];
-          final selected = selectedCategory == category;
+      );
+    }
 
-          return InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => jumpToCategory(category),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 6,
-                vertical: 10,
-              ),
-              decoration: BoxDecoration(
-                color: selected ? mulberry.withOpacity(0.10) : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-                border: Border(
-                  left: BorderSide(
-                    color: selected ? mulberry : Colors.transparent,
-                    width: 4,
-                  ),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    getCategoryIcon(category),
-                    color: selected ? mulberry : Colors.grey.shade600,
-                    size: 25,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    category,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: selected ? mulberry : Colors.grey.shade700,
-                      fontSize: 10.8,
-                      fontWeight: selected ? FontWeight.bold : FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget buildCategoryHeader(String category, List<Map<String, dynamic>> items) {
-    categoryKeys.putIfAbsent(category, () => GlobalKey());
-
-    return Container(
-      key: categoryKeys[category],
-      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              category,
-              style: const TextStyle(
-                color: mulberryDark,
-                fontFamily: 'Georgia',
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 5,
-            ),
-            decoration: BoxDecoration(
-              color: mulberry.withOpacity(0.09),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '${items.length} item',
-              style: const TextStyle(
-                color: mulberry,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
+    return Column(
+      children: items.map(buildItemCard).toList(),
     );
   }
 
@@ -1576,9 +1423,12 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     final currentStock = getCurrentQuantity(item);
     final minimumStock = getMinimumQuantity(item);
     final barcode = getBarcode(item);
-    final expiryDate = getExpiryDate(item);
-    final expired = isExpired(item);
-    final expiringSoon = isExpiringSoon(item);
+
+    final recommendedBatch = getRecommendedBatch(itemId);
+    final batchExpired =
+        recommendedBatch != null && isExpiredBatch(recommendedBatch);
+    final batchExpiringSoon =
+        recommendedBatch != null && isExpiringSoonBatch(recommendedBatch);
 
     final entered = enteredQuantities[itemId];
     final saved = isItemSaved(itemId);
@@ -1672,21 +1522,31 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        buildSmallBadge('Stock: $currentStock $unit'),
-                        buildSmallBadge('Min: $minimumStock $unit'),
+                        buildSmallBadge(
+                          'Stock: ${formatNumber(currentStock)} $unit',
+                        ),
+                        buildSmallBadge(
+                          'Min: ${formatNumber(minimumStock)} $unit',
+                        ),
                         if (barcode.isNotEmpty) buildSmallBadge(barcode),
-                        if (expiryDate.isNotEmpty)
+                        if (recommendedBatch != null)
                           buildColoredBadge(
-                            'Expiry: $expiryDate',
-                            expired
+                            'FIFO: Exp ${getBatchExpiryDate(recommendedBatch)}',
+                            batchExpired
                                 ? Colors.red
-                                : expiringSoon
+                                : batchExpiringSoon
                                     ? Colors.orange
                                     : Colors.green,
+                          )
+                        else
+                          buildColoredBadge(
+                            'NO BATCH',
+                            Colors.red,
                           ),
-                        if (expired) buildColoredBadge('EXPIRED', Colors.red),
-                        if (expiringSoon)
+                        if (batchExpired) buildColoredBadge('EXPIRED', Colors.red),
+                        if (batchExpiringSoon)
                           buildColoredBadge('EXPIRING SOON', Colors.orange),
+                        if (lowStock) buildColoredBadge('LOW STOCK', Colors.red),
                         if (openingQty != null)
                           buildSmallBadge(
                             'Opening: ${formatNumber(openingQty)} $unit',
@@ -1871,78 +1731,29 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     );
   }
 
-  Widget buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(top: 100),
-        child: Text(
-          'No inventory item found.',
-          style: TextStyle(
-            color: Colors.grey.shade600,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+  Widget buildBodyContent() {
+    return RefreshIndicator(
+      color: mulberry,
+      onRefresh: loadData,
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 115),
+        children: [
+          if (widget.showAppBar) buildHeader(),
+          buildTypeToggle(),
+          buildInstructionCard(),
+          buildSearchBox(),
+          buildCategoryFilter(),
+          buildRemarkBox(),
+          const SizedBox(height: 8),
+          buildItemList(),
+          const SizedBox(height: 30),
+        ],
       ),
     );
   }
 
-  Widget buildStockCountBody() {
-    final groupedItems = getGroupedItems();
-    final searchedItems = getSearchFilteredItems();
-
-    return Column(
-      children: [
-        if (widget.showAppBar) buildHeader(),
-        buildTypeToggle(),
-        buildInstructionCard(),
-        buildSearchBox(),
-        buildRemarkBox(),
-        Expanded(
-          child: Row(
-            children: [
-              buildCategorySidebar(),
-              Expanded(
-                child: searchedItems.isEmpty
-                    ? buildEmptyState()
-                    : ListView(
-                        controller: contentScrollController,
-                        padding: const EdgeInsets.only(bottom: 115),
-                        children: [
-                          if (searchQuery.trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                              child: Text(
-                                '${searchedItems.length} result(s) found',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12.5,
-                                ),
-                              ),
-                            ),
-                          ...groupedItems.entries.expand((entry) {
-                            final category = entry.key;
-                            final items = entry.value;
-
-                            return [
-                              buildCategoryHeader(category, items),
-                              ...items.map(buildItemCard),
-                            ];
-                          }),
-                        ],
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   void showMessage(String message, {bool isError = false}) {
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).clearSnackBars();
 
@@ -1987,16 +1798,6 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                   icon: const Icon(Icons.refresh),
                 ),
               ],
-            )
-          : null,
-      floatingActionButton: showFloatingSearch
-          ? FloatingActionButton(
-              mini: true,
-              backgroundColor: softWhite,
-              foregroundColor: mulberry,
-              elevation: 5,
-              onPressed: openSearchPanel,
-              child: const Icon(Icons.search),
             )
           : null,
       bottomNavigationBar: SafeArea(
@@ -2057,11 +1858,7 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                 color: mulberry,
               ),
             )
-          : RefreshIndicator(
-              color: mulberry,
-              onRefresh: loadData,
-              child: buildStockCountBody(),
-            ),
+          : buildBodyContent(),
     );
   }
 }

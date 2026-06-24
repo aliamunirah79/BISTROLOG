@@ -10,7 +10,9 @@ import '../common/stock_adjustment_page.dart';
 import '../common/review_stock_count_page.dart';
 import '../common/work_schedule_page.dart';
 
+import 'manage_cleaning_tasks_page.dart';
 import 'review_checklist_page.dart';
+import 'checklist_history_page.dart';
 import 'manage_recipe_page.dart';
 import 'manage_inventory_item_page.dart';
 import 'reports_analytics_page.dart';
@@ -467,88 +469,33 @@ class _ManagerHomeState extends State<ManagerHome> {
           buildScheduleSection(),
           const SizedBox(height: 20),
           buildSectionTitle(
-            title: 'Operations',
-            subtitle: 'Review, schedule and reporting tools',
+            title: 'Manager Modules',
+            subtitle: 'Grouped tools for easier navigation',
           ),
           const SizedBox(height: 12),
           buildHomeMenuCard(
-            icon: Icons.calendar_month,
-            title: 'Work Schedule',
-            subtitle: 'Assign staff shift and duty rotation',
-            color: Colors.blue,
-            onTap: () {
-              openPage(const WorkSchedulePage());
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.people,
-            title: 'Manage Staff',
-            subtitle: 'Activate, edit and manage staff profile',
-            color: Colors.teal,
-            onTap: () {
-              setState(() {
-                currentIndex = 2;
-              });
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.restaurant_menu,
-            title: 'Manage Recipes',
-            subtitle: 'Add, update and manage recipe standard',
-            color: Colors.green,
-            onTap: () {
-              setState(() {
-                currentIndex = 1;
-              });
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.edit_note,
-            title: 'Manage Inventory Items',
-            subtitle: 'Register item, barcode and minimum stock',
-            color: mulberry,
-            onTap: () {
-              openPage(const ManageInventoryItemPage());
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.checklist,
-            title: 'Review Checklist',
-            subtitle: 'Approve or reject submitted cleaning tasks',
+            icon: Icons.checklist_rounded,
+            title: 'Checklist Management',
+            subtitle: 'Manage cleaning tasks, reviews and checklist history',
             color: Colors.indigo,
-            onTap: () {
-              openPage(const ReviewChecklistPage());
-            },
+            onTap: openChecklistManagement,
           ),
           buildHomeMenuCard(
-            icon: Icons.verified,
-            title: 'Review Stock Count',
-            subtitle: 'Review daily stock usage and deduction',
-            color: Colors.green,
-            onTap: () {
-              openPage(const ReviewStockCountPage());
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.qr_code_scanner,
-            title: 'Stock Adjustment',
-            subtitle: 'Add stock, correct stock and record movements',
+            icon: Icons.inventory_2_rounded,
+            title: 'Inventory Management',
+            subtitle: 'Manage item records, stock adjustment and stock review',
             color: Colors.orange,
-            onTap: () {
-              openPage(const StockAdjustmentPage());
-            },
+            onTap: openInventoryManagement,
           ),
           buildHomeMenuCard(
-            icon: Icons.history,
-            title: 'History Log',
-            subtitle: 'View inventory changes and stock movements',
-            color: Colors.blueGrey,
-            onTap: () {
-              openPage(const HistoryLogPage());
-            },
+            icon: Icons.settings_suggest_rounded,
+            title: 'Operations Management',
+            subtitle: 'Manage schedule, staff and recipe standards',
+            color: Colors.teal,
+            onTap: openOperationsManagement,
           ),
           buildHomeMenuCard(
-            icon: Icons.bar_chart,
+            icon: Icons.bar_chart_rounded,
             title: 'Reports & Analytics',
             subtitle: 'View checklist and inventory reports',
             color: Colors.deepPurple,
@@ -557,6 +504,121 @@ class _ManagerHomeState extends State<ManagerHome> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  void openChecklistManagement() {
+    openPage(
+      ManagerModulePage(
+        title: 'Checklist Management',
+        subtitle: 'Manage cleaning tasks, reviews and checklist records',
+        icon: Icons.checklist_rounded,
+        color: Colors.indigo,
+        items: [
+          ManagerModuleItem(
+            icon: Icons.cleaning_services_rounded,
+            title: 'Manage Cleaning Tasks',
+            subtitle: 'Create, edit and remove checklist tasks',
+            color: Colors.pink,
+            page: const ManageCleaningTasksPage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.fact_check_rounded,
+            title: 'Review Checklist',
+            subtitle: 'Approve or reject submitted cleaning tasks',
+            color: Colors.indigo,
+            page: const ReviewChecklistPage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.history_rounded,
+            title: 'Checklist History',
+            subtitle: 'View approved, rejected and pending checklist logs',
+            color: Colors.blueGrey,
+            page: const ChecklistHistoryPage(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void openInventoryManagement() {
+    openPage(
+      ManagerModulePage(
+        title: 'Inventory Management',
+        subtitle: 'Manage inventory records, stock review and movement logs',
+        icon: Icons.inventory_2_rounded,
+        color: Colors.orange,
+        items: [
+          ManagerModuleItem(
+            icon: Icons.edit_note_rounded,
+            title: 'Manage Inventory Items',
+            subtitle: 'Register item, barcode and minimum stock',
+            color: mulberry,
+            page: const ManageInventoryItemPage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.qr_code_scanner_rounded,
+            title: 'Stock Adjustment',
+            subtitle: 'Add stock, correct stock and record movements',
+            color: Colors.orange,
+            page: const StockAdjustmentPage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.verified_rounded,
+            title: 'Review Stock Count',
+            subtitle: 'Review daily stock usage and deduction',
+            color: Colors.green,
+            page: const ReviewStockCountPage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.history_rounded,
+            title: 'History Log',
+            subtitle: 'View inventory changes and stock movements',
+            color: Colors.blueGrey,
+            page: const HistoryLogPage(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void openOperationsManagement() {
+    openPage(
+      ManagerModulePage(
+        title: 'Operations Management',
+        subtitle: 'Manage staff, schedule and recipe standards',
+        icon: Icons.settings_suggest_rounded,
+        color: Colors.teal,
+        items: [
+          ManagerModuleItem(
+            icon: Icons.calendar_month_rounded,
+            title: 'Work Schedule',
+            subtitle: 'Assign staff shift and duty rotation',
+            color: Colors.blue,
+            page: const WorkSchedulePage(),
+          ),
+          ManagerModuleItem(
+            icon: Icons.people_rounded,
+            title: 'Manage Staff',
+            subtitle: 'Activate, edit and manage staff profile',
+            color: Colors.teal,
+            useBottomTabIndex: 2,
+          ),
+          ManagerModuleItem(
+            icon: Icons.restaurant_menu_rounded,
+            title: 'Manage Recipes',
+            subtitle: 'Add, update and manage recipe standard',
+            color: Colors.green,
+            useBottomTabIndex: 1,
+          ),
+        ],
+        onOpenBottomTab: (index) {
+          Navigator.pop(context);
+          setState(() {
+            currentIndex = index;
+          });
+        },
       ),
     );
   }
@@ -767,62 +829,6 @@ class _ManagerHomeState extends State<ManagerHome> {
     );
   }
 
-  Widget buildMiniBadge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget buildInfoChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 6,
-      ),
-      decoration: BoxDecoration(
-        color: cream,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: creamDark.withOpacity(0.7),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: mulberry,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            text,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget buildSectionTitle({
     required String title,
     required String subtitle,
@@ -1004,6 +1010,39 @@ class _ManagerHomeState extends State<ManagerHome> {
                     },
                   ),
                   buildDrawerItem(
+                    icon: Icons.checklist_rounded,
+                    title: 'Checklist Management',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openChecklistManagement();
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.inventory_2_rounded,
+                    title: 'Inventory Management',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openInventoryManagement();
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.settings_suggest_rounded,
+                    title: 'Operations Management',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openOperationsManagement();
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.bar_chart_rounded,
+                    title: 'Reports & Analytics',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openPage(const ReportsAnalyticsPage());
+                    },
+                  ),
+                  const Divider(height: 22),
+                  buildDrawerItem(
                     icon: Icons.restaurant_menu,
                     title: 'Manage Recipes',
                     onTap: () {
@@ -1041,63 +1080,6 @@ class _ManagerHomeState extends State<ManagerHome> {
                       setState(() {
                         currentIndex = 4;
                       });
-                    },
-                  ),
-                  const Divider(height: 22),
-                  buildDrawerItem(
-                    icon: Icons.calendar_month,
-                    title: 'Work Schedule',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const WorkSchedulePage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.checklist,
-                    title: 'Review Checklist',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const ReviewChecklistPage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.verified,
-                    title: 'Review Stock Count',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const ReviewStockCountPage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.edit_note,
-                    title: 'Manage Inventory Items',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const ManageInventoryItemPage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.qr_code_scanner,
-                    title: 'Stock Adjustment',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const StockAdjustmentPage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.history,
-                    title: 'History Log',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const HistoryLogPage());
-                    },
-                  ),
-                  buildDrawerItem(
-                    icon: Icons.bar_chart,
-                    title: 'Reports & Analytics',
-                    onTap: () {
-                      Navigator.pop(context);
-                      openPage(const ReportsAnalyticsPage());
                     },
                   ),
                   buildDrawerItem(
@@ -1245,6 +1227,204 @@ class _ManagerHomeState extends State<ManagerHome> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class ManagerModuleItem {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final Widget? page;
+  final int? useBottomTabIndex;
+
+  const ManagerModuleItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    this.page,
+    this.useBottomTabIndex,
+  });
+}
+
+class ManagerModulePage extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final List<ManagerModuleItem> items;
+  final void Function(int index)? onOpenBottomTab;
+
+  const ManagerModulePage({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.items,
+    this.onOpenBottomTab,
+  });
+
+  static const Color mulberry = Color(0xFF6D2B50);
+  static const Color mulberryDark = Color(0xFF4A1A35);
+  static const Color cream = Color(0xFFF5ECD7);
+  static const Color creamDark = Color(0xFFE8D5B5);
+  static const Color softWhite = Color(0xFFFFFCF7);
+
+  void openItem(BuildContext context, ManagerModuleItem item) {
+    if (item.useBottomTabIndex != null) {
+      onOpenBottomTab?.call(item.useBottomTabIndex!);
+      return;
+    }
+
+    if (item.page == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => item.page!),
+    );
+  }
+
+  Widget buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.95),
+            mulberry,
+            mulberryDark,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: mulberryDark.withOpacity(0.16),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 27,
+            backgroundColor: cream.withOpacity(0.18),
+            child: Icon(
+              icon,
+              color: cream,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: cream,
+                    fontFamily: 'Georgia',
+                    fontSize: 21,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: creamDark,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildModuleCard(BuildContext context, ManagerModuleItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 13),
+      decoration: BoxDecoration(
+        color: softWhite,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: mulberryDark.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(14),
+        leading: CircleAvatar(
+          backgroundColor: item.color.withOpacity(0.12),
+          child: Icon(
+            item.icon,
+            color: item.color,
+          ),
+        ),
+        title: Text(
+          item.title,
+          style: const TextStyle(
+            color: mulberryDark,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          item.subtitle,
+          style: TextStyle(
+            color: Colors.grey.shade600,
+          ),
+        ),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.grey.shade500,
+        ),
+        onTap: () => openItem(context, item),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: cream,
+      appBar: AppBar(
+        backgroundColor: mulberry,
+        foregroundColor: cream,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: cream,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          buildHeader(),
+          const SizedBox(height: 16),
+          ...items.map((item) => buildModuleCard(context, item)),
+        ],
       ),
     );
   }

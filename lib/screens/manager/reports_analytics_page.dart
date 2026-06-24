@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,7 +19,8 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   final supabase = Supabase.instance.client;
 
   bool isLoading = true;
-  int selectedRangeDays = 7;
+
+  DateTime selectedWeekDate = DateTime.now();
 
   List<Map<String, dynamic>> inventoryItems = [];
   List<Map<String, dynamic>> lowStockItems = [];
@@ -26,6 +28,8 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   List<Map<String, dynamic>> dailyStockCounts = [];
   List<Map<String, dynamic>> checklistLogs = [];
   List<Map<String, dynamic>> inventoryUsageSummary = [];
+  List<Map<String, dynamic>> activeCleaningTasks = [];
+  List<Map<String, dynamic>> activeStaffMembers = [];
 
   static const Color mulberry = Color(0xFF6D2B50);
   static const Color mulberryDark = Color(0xFF4A1A35);
@@ -40,13 +44,84 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     loadReportData();
   }
 
+  DateTime get selectedWeekStart {
+    final cleanDate = DateTime(
+      selectedWeekDate.year,
+      selectedWeekDate.month,
+      selectedWeekDate.day,
+    );
+
+    return cleanDate.subtract(Duration(days: cleanDate.weekday - 1));
+  }
+
+  DateTime get selectedWeekEnd {
+    return selectedWeekStart.add(const Duration(days: 6));
+  }
+
   String get startDateText {
-    final date = DateTime.now().subtract(Duration(days: selectedRangeDays - 1));
-    return date.toIso8601String().substring(0, 10);
+    return selectedWeekStart.toIso8601String().substring(0, 10);
   }
 
   String get endDateText {
-    return DateTime.now().toIso8601String().substring(0, 10);
+    return selectedWeekEnd.toIso8601String().substring(0, 10);
+  }
+
+  String formatDateOnly(DateTime date) {
+    final year = date.year.toString();
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+
+    return '$year-$month-$day';
+  }
+
+  String get selectedWeekRangeText {
+    return '${formatDateOnly(selectedWeekStart)} - ${formatDateOnly(selectedWeekEnd)}';
+  }
+
+  Future<void> goToPreviousWeek() async {
+    setState(() {
+      selectedWeekDate = selectedWeekDate.subtract(const Duration(days: 7));
+    });
+
+    await loadReportData();
+  }
+
+  Future<void> goToNextWeek() async {
+    setState(() {
+      selectedWeekDate = selectedWeekDate.add(const Duration(days: 7));
+    });
+
+    await loadReportData();
+  }
+
+  Future<void> pickReportWeek() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedWeekDate,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: mulberry,
+              onPrimary: cream,
+              surface: softWhite,
+              onSurface: mulberryDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      selectedWeekDate = picked;
+    });
+
+    await loadReportData();
   }
 
   Future<void> loadReportData() async {
@@ -84,7 +159,17 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
 
       final countResponse = await supabase
           .from('daily_stock_counts')
-          .select()
+          .select('''
+            *,
+            inventory_items:item_id (
+              item_id,
+              item_name,
+              category,
+              unit,
+              current_quantity,
+              minimum_quantity
+            )
+          ''')
           .gte('count_date', startDateText)
           .lte('count_date', endDateText)
           .eq('count_type', 'closing')
@@ -92,10 +177,46 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
 
       final checklistResponse = await supabase
           .from('cleaning_task_logs')
-          .select()
+          .select('''
+            log_id,
+            task_id,
+            staff_id,
+            task_date,
+            status,
+            remarks,
+            proof_url,
+            completed_at,
+            review_status,
+            reviewed_by,
+            reviewed_at,
+            review_remarks,
+            created_at,
+            updated_at,
+            cleaning_tasks:task_id (
+              title,
+              description,
+              category,
+              proof_required
+            ),
+            profiles:staff_id (
+              full_name,
+              role
+            )
+          ''')
           .gte('task_date', startDateText)
           .lte('task_date', endDateText)
-          .order('created_at', ascending: false);
+          .order('task_date', ascending: false);
+
+      final cleaningTasksResponse = await supabase
+          .from('cleaning_tasks')
+          .select('task_id, title, category, proof_required, is_active')
+          .eq('is_active', true);
+
+      final staffResponse = await supabase
+          .from('profiles')
+          .select('id, full_name, role, is_active, staff_status')
+          .eq('is_active', true)
+          .eq('staff_status', 'active');
 
       if (!mounted) return;
 
@@ -107,6 +228,15 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
             List<Map<String, dynamic>>.from(usageSummaryResponse);
         dailyStockCounts = List<Map<String, dynamic>>.from(countResponse);
         checklistLogs = List<Map<String, dynamic>>.from(checklistResponse);
+        activeCleaningTasks =
+            List<Map<String, dynamic>>.from(cleaningTasksResponse);
+
+        activeStaffMembers = List<Map<String, dynamic>>.from(staffResponse)
+            .where((staff) {
+          final role = (staff['role'] ?? '').toString();
+          return role == 'staff' || role == 'supervisor';
+        }).toList();
+
         isLoading = false;
       });
     } catch (e) {
@@ -170,6 +300,21 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     return num.tryParse(value.toString()) ?? 0;
   }
 
+  String formatValue(String value) {
+    final cleaned = value.trim();
+
+    if (cleaned.isEmpty) {
+      return '-';
+    }
+
+    return cleaned
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((part) => part.trim().isNotEmpty)
+        .map((part) => part[0].toUpperCase() + part.substring(1))
+        .join(' ');
+  }
+
   String formatNumber(dynamic value) {
     if (value == null) {
       return '0';
@@ -194,13 +339,9 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     }
   }
 
-  int get totalInventoryItems {
-    return inventoryItems.length;
-  }
+  int get totalInventoryItems => inventoryItems.length;
 
-  int get lowStockCount {
-    return lowStockItems.length;
-  }
+  int get lowStockCount => lowStockItems.length;
 
   int get stockInCount {
     return stockMovements.where((movement) {
@@ -233,6 +374,15 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     }).length;
   }
 
+  int get totalStockCountReviews {
+    return pendingStockCount + approvedStockCount + rejectedStockCount;
+  }
+
+  double get stockApprovalRate {
+    if (totalStockCountReviews == 0) return 0;
+    return approvedStockCount / totalStockCountReviews;
+  }
+
   int get completedChecklistCount {
     return checklistLogs.where((log) {
       return (log['status'] ?? '').toString() == 'completed';
@@ -260,16 +410,36 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     }).length;
   }
 
-  int get checklistTotal {
-    return checklistLogs.length;
+  int get openingTaskCount {
+    return activeCleaningTasks.where((task) {
+      return (task['category'] ?? '').toString() == 'opening';
+    }).length;
+  }
+
+  int get closingTaskCount {
+    return activeCleaningTasks.where((task) {
+      return (task['category'] ?? '').toString() == 'closing';
+    }).length;
+  }
+
+  int get weeklyTaskCount {
+    return activeCleaningTasks.where((task) {
+      return (task['category'] ?? '').toString() == 'weekly';
+    }).length;
+  }
+
+  int get expectedChecklistPerStaff {
+    return ((openingTaskCount + closingTaskCount) * 7) + weeklyTaskCount;
   }
 
   double get checklistCompletionRate {
-    if (checklistTotal == 0) {
+    final expectedTotal = expectedChecklistPerStaff * activeStaffMembers.length;
+
+    if (expectedTotal == 0) {
       return 0;
     }
 
-    return completedChecklistCount / checklistTotal;
+    return completedChecklistCount / expectedTotal;
   }
 
   double get checklistApprovalRate {
@@ -278,6 +448,86 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     }
 
     return approvedChecklistCount / completedChecklistCount;
+  }
+
+  String getStaffFullName(Map<String, dynamic> staff) {
+    return (staff['full_name'] ?? 'Unknown Staff').toString();
+  }
+
+  String getStaffRole(Map<String, dynamic> staff) {
+    return (staff['role'] ?? 'staff').toString();
+  }
+
+  List<Map<String, dynamic>> getWeeklyStaffChecklistReport() {
+    final Map<String, Map<String, dynamic>> reportMap = {};
+
+    for (final staff in activeStaffMembers) {
+      final staffId = staff['id']?.toString() ?? '';
+
+      if (staffId.isEmpty) continue;
+
+      reportMap[staffId] = {
+        'staff_id': staffId,
+        'staff_name': getStaffFullName(staff),
+        'role': getStaffRole(staff),
+        'expected': expectedChecklistPerStaff,
+        'completed': 0,
+        'approved': 0,
+        'rejected': 0,
+        'pending_review': 0,
+      };
+    }
+
+    for (final log in checklistLogs) {
+      final staffId = log['staff_id']?.toString() ?? '';
+
+      if (staffId.isEmpty) continue;
+      if (!reportMap.containsKey(staffId)) continue;
+
+      final status = (log['status'] ?? '').toString();
+      final reviewStatus = (log['review_status'] ?? 'pending').toString();
+
+      final staffReport = reportMap[staffId]!;
+
+      if (status == 'completed') {
+        staffReport['completed'] = (staffReport['completed'] as int) + 1;
+      }
+
+      if (reviewStatus == 'approved') {
+        staffReport['approved'] = (staffReport['approved'] as int) + 1;
+      } else if (reviewStatus == 'rejected') {
+        staffReport['rejected'] = (staffReport['rejected'] as int) + 1;
+      } else if (status == 'completed' && reviewStatus == 'pending') {
+        staffReport['pending_review'] =
+            (staffReport['pending_review'] as int) + 1;
+      }
+    }
+
+    final result = reportMap.values.toList();
+
+    result.sort((a, b) {
+      final aRate = getStaffCompletionRate(a);
+      final bRate = getStaffCompletionRate(b);
+
+      if (aRate != bRate) {
+        return bRate.compareTo(aRate);
+      }
+
+      final aName = a['staff_name'].toString().toLowerCase();
+      final bName = b['staff_name'].toString().toLowerCase();
+      return aName.compareTo(bName);
+    });
+
+    return result;
+  }
+
+  int getStaffCompletionRate(Map<String, dynamic> staffReport) {
+    final expected = staffReport['expected'] as int;
+    final completed = staffReport['completed'] as int;
+
+    if (expected == 0) return 0;
+
+    return ((completed / expected) * 100).round();
   }
 
   List<Map<String, dynamic>> getMostUsedItems() {
@@ -323,16 +573,149 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     return result.take(5).toList();
   }
 
-  List<Map<String, dynamic>> getLowStockItems() {
+  List<Map<String, dynamic>> getCriticalLowStockItems() {
     final items = List<Map<String, dynamic>>.from(lowStockItems);
 
     items.sort((a, b) {
-      final aQty = getCurrentQuantity(a);
-      final bQty = getCurrentQuantity(b);
-      return aQty.compareTo(bQty);
+      final aGap = getMinimumQuantity(a) - getCurrentQuantity(a);
+      final bGap = getMinimumQuantity(b) - getCurrentQuantity(b);
+      return bGap.compareTo(aGap);
     });
 
-    return items.take(6).toList();
+    return items.take(8).toList();
+  }
+
+  double getStockLevelRatio(Map<String, dynamic> item) {
+    final current = getCurrentQuantity(item);
+    final minimum = getMinimumQuantity(item);
+
+    if (minimum <= 0) return 0;
+
+    return (current / minimum).clamp(0.0, 1.0).toDouble();
+  }
+
+  String getLowStockSeverity(Map<String, dynamic> item) {
+    final current = getCurrentQuantity(item);
+    final minimum = getMinimumQuantity(item);
+
+    if (minimum <= 0) return 'Monitor';
+
+    final ratio = current / minimum;
+
+    if (ratio <= 0.25) return 'Critical';
+    if (ratio <= 0.50) return 'Very Low';
+    return 'Low';
+  }
+
+  Color getLowStockSeverityColor(String severity) {
+    if (severity == 'Critical') return const Color(0xFFD32F2F);
+    if (severity == 'Very Low') return const Color(0xFFEF6C00);
+    return const Color(0xFFF9A825);
+  }
+
+  List<Map<String, dynamic>> getRecentStockCounts() {
+    final list = List<Map<String, dynamic>>.from(dailyStockCounts);
+
+    list.sort((a, b) {
+      final aDate = (a['created_at'] ?? a['count_date'] ?? '').toString();
+      final bDate = (b['created_at'] ?? b['count_date'] ?? '').toString();
+      return bDate.compareTo(aDate);
+    });
+
+    return list.take(6).toList();
+  }
+
+  String getStockCountItemName(Map<String, dynamic> count) {
+    final item = count['inventory_items'];
+
+    if (item is Map<String, dynamic>) {
+      final name = (item['item_name'] ?? item['name'] ?? '').toString().trim();
+
+      if (name.isNotEmpty) {
+        return name;
+      }
+    }
+
+    if (item is Map) {
+      final mappedItem = Map<String, dynamic>.from(item);
+      final name =
+          (mappedItem['item_name'] ?? mappedItem['name'] ?? '').toString().trim();
+
+      if (name.isNotEmpty) {
+        return name;
+      }
+    }
+
+    return (count['item_name'] ??
+            count['product_name'] ??
+            count['ingredient_name'] ??
+            count['name'] ??
+            'Unknown Stock Item')
+        .toString();
+  }
+
+  String getStockCountItemCategory(Map<String, dynamic> count) {
+    final item = count['inventory_items'];
+
+    if (item is Map<String, dynamic>) {
+      final category = (item['category'] ?? '').toString().trim();
+
+      if (category.isNotEmpty) {
+        return formatValue(category);
+      }
+    }
+
+    if (item is Map) {
+      final mappedItem = Map<String, dynamic>.from(item);
+      final category = (mappedItem['category'] ?? '').toString().trim();
+
+      if (category.isNotEmpty) {
+        return formatValue(category);
+      }
+    }
+
+    return 'Uncategorized';
+  }
+
+  String getStockCountDate(Map<String, dynamic> count) {
+    return (count['count_date'] ??
+            count['stock_date'] ??
+            count['created_at'] ??
+            '-')
+        .toString();
+  }
+
+  String getStockCountStatus(Map<String, dynamic> count) {
+    return (count['review_status'] ?? 'pending').toString();
+  }
+
+  String getStockCountQtyText(Map<String, dynamic> count) {
+    final opening = count['opening_quantity'] ??
+        count['opening_qty'] ??
+        count['system_quantity'] ??
+        count['previous_quantity'];
+
+    final closing = count['closing_quantity'] ??
+        count['closing_qty'] ??
+        count['actual_quantity'] ??
+        count['counted_quantity'];
+
+    final usage = count['usage_quantity'] ??
+        count['estimated_usage'] ??
+        count['difference_quantity'] ??
+        count['variance'];
+
+    if (opening != null || closing != null || usage != null) {
+      return 'Opening: ${formatNumber(opening)} • Closing: ${formatNumber(closing)} • Usage/Variance: ${formatNumber(usage)}';
+    }
+
+    return 'Quantity detail unavailable';
+  }
+
+  Color getStockReviewColor(String status) {
+    if (status == 'approved') return const Color(0xFF2E7D32);
+    if (status == 'rejected') return const Color(0xFFD32F2F);
+    return const Color(0xFFEF6C00);
   }
 
   Widget buildHeader() {
@@ -388,19 +771,10 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '$startDateText to $endDateText',
+                  'Weekly report: $selectedWeekRangeText',
                   style: const TextStyle(
                     color: creamDark,
                     fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Cafe operation summary based on inventory usage, low stock and cleaning compliance.',
-                  style: TextStyle(
-                    color: cream.withOpacity(0.92),
-                    fontSize: 12.5,
-                    height: 1.3,
                   ),
                 ),
               ],
@@ -412,44 +786,75 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   }
 
   Widget buildRangeSelector() {
-    final ranges = [
-      {'label': 'Today', 'days': 1},
-      {'label': '7 Days', 'days': 7},
-      {'label': '30 Days', 'days': 30},
-    ];
-
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: ranges.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final range = ranges[index];
-          final selected = selectedRangeDays == range['days'];
-
-          return ChoiceChip(
-            label: Text(range['label'].toString()),
-            selected: selected,
-            selectedColor: mulberry,
-            backgroundColor: softWhite,
-            side: BorderSide(
-              color: selected ? mulberry : creamDark,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: softWhite,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: creamDark.withOpacity(0.85),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: mulberryDark.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Previous Week',
+            onPressed: goToPreviousWeek,
+            icon: const Icon(
+              Icons.chevron_left_rounded,
+              color: mulberry,
+              size: 30,
             ),
-            elevation: selected ? 3 : 0,
-            labelStyle: TextStyle(
-              color: selected ? cream : mulberry,
-              fontWeight: FontWeight.bold,
+          ),
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: pickReportWeek,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  children: [
+                    Text(
+                      'Selected Week',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      selectedWeekRangeText,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: mulberry,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            onSelected: (_) async {
-              setState(() {
-                selectedRangeDays = range['days'] as int;
-              });
-
-              await loadReportData();
-            },
-          );
-        },
+          ),
+          IconButton(
+            tooltip: 'Next Week',
+            onPressed: goToNextWeek,
+            icon: const Icon(
+              Icons.chevron_right_rounded,
+              color: mulberry,
+              size: 30,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -587,6 +992,7 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     final approved = approvedStockCount.toDouble();
     final rejected = rejectedStockCount.toDouble();
     final total = pending + approved + rejected;
+    final approvalRate = stockApprovalRate.clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -658,10 +1064,72 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
                       value: rejectedStockCount.toString(),
                       color: const Color(0xFFD32F2F),
                     ),
+                    const SizedBox(height: 8),
+                    buildProgressMetric(
+                      label: 'Stock Count Approval Rate',
+                      value: approvalRate,
+                      color: const Color(0xFF2E7D32),
+                    ),
                   ],
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          if (total == 0)
+            buildEmptyText('No stock count review submitted for this week.')
+          else
+            buildStockStatusInsightBox(),
+        ],
+      ),
+    );
+  }
+
+  Widget buildStockStatusInsightBox() {
+    String message;
+    Color color;
+    IconData icon;
+
+    if (pendingStockCount > 0) {
+      message =
+          '$pendingStockCount stock count record(s) still need manager review.';
+      color = const Color(0xFFEF6C00);
+      icon = Icons.hourglass_top_rounded;
+    } else if (rejectedStockCount > 0) {
+      message =
+          '$rejectedStockCount stock count record(s) were rejected and may need correction.';
+      color = const Color(0xFFD32F2F);
+      icon = Icons.error_outline_rounded;
+    } else {
+      message = 'All submitted stock count records are approved this week.';
+      color = const Color(0xFF2E7D32);
+      icon = Icons.verified_rounded;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: color.withOpacity(0.18),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                height: 1.3,
+              ),
+            ),
           ),
         ],
       ),
@@ -735,18 +1203,9 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           buildSectionTitle('Most Used Items', Icons.bar_chart),
-          const SizedBox(height: 4),
-          Text(
-            'Based on inventory_usage_summary estimated usage.',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
           const SizedBox(height: 14),
           if (items.isEmpty)
-            buildEmptyText('No usage summary found for this period.')
+            buildEmptyText('No usage summary found for this week.')
           else
             ...items.asMap().entries.map((entry) {
               final index = entry.key;
@@ -846,7 +1305,8 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   }
 
   Widget buildChecklistProgressPanel() {
-    final completionPercent = checklistCompletionRate.clamp(0.0, 1.0);
+    final weeklyReports = getWeeklyStaffChecklistReport();
+    final overallCompletionPercent = checklistCompletionRate.clamp(0.0, 1.0);
     final approvalPercent = checklistApprovalRate.clamp(0.0, 1.0);
 
     return Container(
@@ -855,11 +1315,14 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          buildSectionTitle('Checklist Performance', Icons.check_circle),
+          buildSectionTitle(
+            'Weekly Staff Checklist Completion',
+            Icons.assignment_turned_in,
+          ),
           const SizedBox(height: 14),
           buildProgressMetric(
-            label: 'Completion Rate',
-            value: completionPercent,
+            label: 'Overall Weekly Completion',
+            value: overallCompletionPercent,
             color: const Color(0xFF1976D2),
           ),
           const SizedBox(height: 12),
@@ -902,7 +1365,258 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
             pendingChecklistReviewCount.toString(),
             const Color(0xFFEF6C00),
           ),
+          const SizedBox(height: 16),
+          if (weeklyReports.isEmpty)
+            buildEmptyText('No active staff found for checklist report.')
+          else
+            buildWeeklyStaffCompletionTable(weeklyReports),
         ],
+      ),
+    );
+  }
+
+  Widget buildWeeklyStaffCompletionTable(
+    List<Map<String, dynamic>> weeklyReports,
+  ) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: cream,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
+      ),
+      child: Column(
+        children: [
+          buildWeeklyTableHeader(),
+          ...weeklyReports.map(buildWeeklyTableRow),
+        ],
+      ),
+    );
+  }
+
+  Widget buildWeeklyTableHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      decoration: const BoxDecoration(
+        color: mulberry,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(16),
+          topRight: Radius.circular(16),
+        ),
+      ),
+      child: const Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Text(
+              'Staff',
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              'Completion',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Appr.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Reject',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Pend.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              'Rate',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: cream,
+                fontWeight: FontWeight.bold,
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildWeeklyTableRow(Map<String, dynamic> staffReport) {
+    final expected = staffReport['expected'] as int;
+    final completed = staffReport['completed'] as int;
+    final approved = staffReport['approved'] as int;
+    final rejected = staffReport['rejected'] as int;
+    final pendingReview = staffReport['pending_review'] as int;
+    final rate = getStaffCompletionRate(staffReport);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      decoration: BoxDecoration(
+        color: softWhite,
+        border: Border(
+          bottom: BorderSide(
+            color: creamDark.withOpacity(0.65),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 15,
+                  backgroundColor: mulberry.withOpacity(0.12),
+                  child: const Icon(
+                    Icons.person,
+                    color: mulberry,
+                    size: 16,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        staffReport['staff_name'].toString(),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: mulberryDark,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                      Text(
+                        formatValue(staffReport['role'].toString()),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Text(
+              '$completed/$expected',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF1976D2),
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Expanded(
+            child: buildTableNumber(
+              approved.toString(),
+              const Color(0xFF2E7D32),
+            ),
+          ),
+          Expanded(
+            child: buildTableNumber(
+              rejected.toString(),
+              const Color(0xFFD32F2F),
+            ),
+          ),
+          Expanded(
+            child: buildTableNumber(
+              pendingReview.toString(),
+              const Color(0xFFEF6C00),
+            ),
+          ),
+          Expanded(
+            child: buildRateBadge(rate),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildTableNumber(String value, Color color) {
+    return Text(
+      value,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: color,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
+
+  Widget buildRateBadge(int rate) {
+    Color color;
+
+    if (rate >= 90) {
+      color = const Color(0xFF2E7D32);
+    } else if (rate >= 60) {
+      color = const Color(0xFFEF6C00);
+    } else {
+      color = const Color(0xFFD32F2F);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        '$rate%',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -952,13 +1666,15 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   }
 
   Widget buildStockCountReport() {
+    final recentCounts = getRecentStockCounts();
+
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: buildWhiteBox(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          buildSectionTitle('Stock Count Review', Icons.verified),
+          buildSectionTitle('Stock Count Review Details', Icons.verified),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -986,6 +1702,95 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          if (recentCounts.isEmpty)
+            buildEmptyText('No stock count records found for this week.')
+          else
+            ...recentCounts.map(buildStockCountDetailCard),
+        ],
+      ),
+    );
+  }
+
+  Widget buildStockCountDetailCard(Map<String, dynamic> count) {
+    final status = getStockCountStatus(count);
+    final color = getStockReviewColor(status);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cream,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 17,
+            backgroundColor: color.withOpacity(0.12),
+            child: Icon(
+              status == 'approved'
+                  ? Icons.verified_rounded
+                  : status == 'rejected'
+                      ? Icons.cancel_rounded
+                      : Icons.hourglass_top_rounded,
+              color: color,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  getStockCountItemName(count),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: mulberryDark,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  getStockCountItemCategory(count),
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  getStockCountQtyText(count),
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontSize: 11.8,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Date: ${getStockCountDate(count)}',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          buildSmallStatusPill(
+            formatValue(status),
+            color,
           ),
         ],
       ),
@@ -1031,7 +1836,7 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
   }
 
   Widget buildLowStockItems() {
-    final items = getLowStockItems();
+    final items = getCriticalLowStockItems();
 
     return Container(
       padding: const EdgeInsets.all(15),
@@ -1039,16 +1844,7 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          buildSectionTitle('Low Stock Items', Icons.warning_amber),
-          const SizedBox(height: 4),
-          Text(
-            'Based on low_stock_view.',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          buildSectionTitle('Low Stock Item Details', Icons.warning_amber),
           const SizedBox(height: 12),
           if (items.isEmpty)
             buildEmptyText('No low stock item found.')
@@ -1057,13 +1853,9 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
               final index = entry.key;
               final item = entry.value;
 
-              return buildRankedItem(
+              return buildLowStockDetailCard(
                 rank: index + 1,
-                title: getItemName(item),
-                subtitle: getCategory(item),
-                trailing:
-                    '${formatNumber(getCurrentQuantity(item))} / min ${formatNumber(getMinimumQuantity(item))} ${getUnit(item)}',
-                color: const Color(0xFFD32F2F),
+                item: item,
               );
             }),
         ],
@@ -1071,73 +1863,135 @@ class _ReportsAnalyticsPageState extends State<ReportsAnalyticsPage> {
     );
   }
 
-  Widget buildRankedItem({
+  Widget buildLowStockDetailCard({
     required int rank,
-    required String title,
-    required String subtitle,
-    required String trailing,
-    required Color color,
+    required Map<String, dynamic> item,
   }) {
+    final current = getCurrentQuantity(item);
+    final minimum = getMinimumQuantity(item);
+    final shortage = minimum - current;
+    final unit = getUnit(item);
+    final severity = getLowStockSeverity(item);
+    final severityColor = getLowStockSeverityColor(severity);
+    final ratio = getStockLevelRatio(item);
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 9),
-      padding: const EdgeInsets.all(11),
+      margin: const EdgeInsets.only(bottom: 11),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cream,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(15),
         border: Border.all(
-          color: creamDark.withOpacity(0.7),
+          color: severityColor.withOpacity(0.22),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: color.withOpacity(0.13),
-            child: Text(
-              rank.toString(),
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: mulberryDark,
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: severityColor.withOpacity(0.13),
+                child: Text(
+                  rank.toString(),
+                  style: TextStyle(
+                    color: severityColor,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                  ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      getItemName(item),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: mulberryDark,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      getCategory(item),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+              buildSmallStatusPill(severity, severityColor),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 9,
+              backgroundColor: severityColor.withOpacity(0.12),
+              valueColor: AlwaysStoppedAnimation<Color>(severityColor),
             ),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              trailing,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Current: ${formatNumber(current)} $unit',
+                  style: const TextStyle(
+                    color: mulberryDark,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
+              Text(
+                'Min: ${formatNumber(minimum)} $unit',
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            shortage > 0
+                ? 'Shortage: ${formatNumber(shortage)} $unit below minimum level'
+                : 'Stock is close to minimum level',
+            style: TextStyle(
+              color: severityColor,
+              fontSize: 11.5,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget buildSmallStatusPill(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.8,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

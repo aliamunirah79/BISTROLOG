@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ManageStaffPage extends StatefulWidget {
@@ -218,7 +219,7 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
     return 'Bistro@$number';
   }
 
-  Future<bool> createStaffAccount({
+  Future<CreateStaffResult> createStaffAccount({
     required String fullName,
     required String username,
     required String email,
@@ -244,82 +245,400 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
       );
 
       if (response.data is Map && response.data['error'] != null) {
-        showMessage(response.data['error'].toString(), isError: true);
-        return false;
+        return CreateStaffResult(
+          success: false,
+          message: response.data['error'].toString(),
+        );
       }
 
-      await loadStaff();
-      return true;
+      return CreateStaffResult(success: true);
     } catch (e) {
-      showMessage(
-        'Failed to create staff account. Supabase Edge Function may not be ready yet: $e',
-        isError: true,
+      return CreateStaffResult(
+        success: false,
+        message: 'Failed to create account: $e',
       );
-      return false;
     }
   }
 
-  Future<void> showTemporaryPasswordDialog({
-    required String email,
-    required String temporaryPassword,
-  }) async {
-    if (!mounted) return;
+  Future<void> showCreateStaffSheet() async {
+    final fullNameController = TextEditingController();
+    final usernameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final branchController = TextEditingController();
+    final departmentController = TextEditingController();
 
-    await showDialog<void>(
+    String selectedCreateRole = 'staff';
+    bool isSaving = false;
+    String? formError;
+
+    bool accountCreated = false;
+    String createdEmail = '';
+    String createdTemporaryPassword = '';
+
+    await showModalBottomSheet<void>(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: softWhite,
-          title: const Text(
-            'Account Created',
-            style: TextStyle(
-              color: mulberryDark,
-              fontWeight: FontWeight.bold,
+      isScrollControlled: true,
+      backgroundColor: softWhite,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (bottomSheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(bottomSheetContext).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: StatefulBuilder(
+                builder: (context, setModalState) {
+                  Widget buildFormError() {
+                    if (formError == null) return const SizedBox.shrink();
+
+                    return Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Colors.red.shade800,
+                          fontWeight: FontWeight.w600,
+                          height: 1.3,
+                        ),
+                      ),
+                    );
+                  }
+
+                  if (accountCreated) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Center(
+                          child: CircleAvatar(
+                            radius: 40,
+                            backgroundColor: cream,
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                              size: 44,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Center(
+                          child: Text(
+                            'Account Created',
+                            style: TextStyle(
+                              color: mulberryDark,
+                              fontFamily: 'Georgia',
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Give this login detail to the staff. The staff must change this password after first login.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        buildCredentialBox('Email', createdEmail),
+                        const SizedBox(height: 10),
+                        buildCredentialBox(
+                          'Temporary Password',
+                          createdTemporaryPassword,
+                          canCopy: true,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Please copy or save this password now. It will not be shown again.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Navigator.pop(bottomSheetContext);
+                              await loadStaff();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: mulberry,
+                              foregroundColor: cream,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: const Text(
+                              'Done',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Center(
+                        child: CircleAvatar(
+                          radius: 40,
+                          backgroundColor: cream,
+                          child: Icon(
+                            Icons.person_add,
+                            color: mulberry,
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Center(
+                        child: Text(
+                          'Create Staff Account',
+                          style: TextStyle(
+                            color: mulberryDark,
+                            fontFamily: 'Georgia',
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: cream,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: creamDark),
+                        ),
+                        child: Text(
+                          'The system will auto-generate a temporary password. The staff must change it after first login.',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      buildFormError(),
+                      buildTextField(
+                        controller: fullNameController,
+                        label: 'Full Name *',
+                        icon: Icons.badge,
+                      ),
+                      const SizedBox(height: 12),
+                      buildTextField(
+                        controller: usernameController,
+                        label: 'Username *',
+                        icon: Icons.alternate_email,
+                      ),
+                      const SizedBox(height: 12),
+                      buildTextField(
+                        controller: emailController,
+                        label: 'Email *',
+                        icon: Icons.email,
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 12),
+                      buildTextField(
+                        controller: phoneController,
+                        label: 'Phone',
+                        icon: Icons.phone,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      const SizedBox(height: 12),
+                      buildTextField(
+                        controller: branchController,
+                        label: 'Branch',
+                        icon: Icons.store,
+                      ),
+                      const SizedBox(height: 12),
+                      buildTextField(
+                        controller: departmentController,
+                        label: 'Department',
+                        icon: Icons.apartment,
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: selectedCreateRole,
+                        dropdownColor: softWhite,
+                        decoration: buildInputDecoration(
+                          label: 'Role',
+                          icon: Icons.admin_panel_settings,
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'staff',
+                            child: Text('Staff'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'supervisor',
+                            child: Text('Supervisor'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'manager',
+                            child: Text('Manager'),
+                          ),
+                        ],
+                        onChanged: isSaving
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setModalState(() {
+                                  selectedCreateRole = value;
+                                  formError = null;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: isSaving
+                              ? null
+                              : () async {
+                                  final fullName =
+                                      fullNameController.text.trim();
+                                  final username =
+                                      usernameController.text.trim();
+                                  final email =
+                                      emailController.text.trim().toLowerCase();
+
+                                  if (fullName.isEmpty ||
+                                      username.isEmpty ||
+                                      email.isEmpty) {
+                                    setModalState(() {
+                                      formError =
+                                          'Full name, username and email are required.';
+                                    });
+                                    return;
+                                  }
+
+                                  if (!email.contains('@')) {
+                                    setModalState(() {
+                                      formError =
+                                          'Please enter a valid email address.';
+                                    });
+                                    return;
+                                  }
+
+                                  final temporaryPassword =
+                                      generateTemporaryPassword();
+
+                                  setModalState(() {
+                                    isSaving = true;
+                                    formError = null;
+                                  });
+
+                                  final result = await createStaffAccount(
+                                    fullName: fullName,
+                                    username: username,
+                                    email: email,
+                                    temporaryPassword: temporaryPassword,
+                                    role: selectedCreateRole,
+                                    phone: phoneController.text.trim().isEmpty
+                                        ? null
+                                        : phoneController.text.trim(),
+                                    branch:
+                                        branchController.text.trim().isEmpty
+                                            ? null
+                                            : branchController.text.trim(),
+                                    department: departmentController.text
+                                            .trim()
+                                            .isEmpty
+                                        ? null
+                                        : departmentController.text.trim(),
+                                  );
+
+                                  if (!bottomSheetContext.mounted) return;
+
+                                  if (!result.success) {
+                                    setModalState(() {
+                                      isSaving = false;
+                                      formError = result.message ??
+                                          'Failed to create account. Please check if the email or username already exists.';
+                                    });
+                                    return;
+                                  }
+
+                                  setModalState(() {
+                                    isSaving = false;
+                                    accountCreated = true;
+                                    createdEmail = email;
+                                    createdTemporaryPassword =
+                                        temporaryPassword;
+                                  });
+                                },
+                          icon: isSaving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: cream,
+                                  ),
+                                )
+                              : const Icon(Icons.person_add),
+                          label: Text(
+                            isSaving ? 'Creating...' : 'Create Account',
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: mulberry,
+                            foregroundColor: cream,
+                            disabledBackgroundColor:
+                                mulberry.withOpacity(0.45),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Give this login detail to the staff. The staff must change this password after first login.',
-                style: TextStyle(
-                  color: Colors.grey.shade800,
-                  height: 1.35,
-                ),
-              ),
-              const SizedBox(height: 14),
-              buildCredentialBox('Email', email),
-              const SizedBox(height: 10),
-              buildCredentialBox('Temporary Password', temporaryPassword),
-              const SizedBox(height: 10),
-              Text(
-                'Please save or copy this password now. It will not be shown again.',
-                style: TextStyle(
-                  color: Colors.red.shade700,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 12.5,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: mulberry,
-                foregroundColor: cream,
-              ),
-              child: const Text('I Understand'),
-            ),
-          ],
         );
       },
     );
+
+    fullNameController.dispose();
+    usernameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+    branchController.dispose();
+    departmentController.dispose();
   }
 
-  Widget buildCredentialBox(String label, String value) {
+  Widget buildCredentialBox(
+    String label,
+    String value, {
+    bool canCopy = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -327,26 +646,65 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: creamDark),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  value,
+                  style: const TextStyle(
+                    color: mulberryDark,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          SelectableText(
-            value,
-            style: const TextStyle(
-              color: mulberryDark,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
+          if (canCopy) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Copy password',
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: value));
+
+                if (!mounted) return;
+
+                ScaffoldMessenger.of(context).clearSnackBars();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      'Temporary password copied.',
+                      style: TextStyle(
+                        color: cream,
+                        fontFamily: 'Georgia',
+                      ),
+                    ),
+                    backgroundColor: mulberry,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(
+                Icons.copy_rounded,
+                color: mulberry,
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -430,264 +788,6 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
     );
 
     return result == true;
-  }
-
-  Future<void> showCreateStaffSheet() async {
-    final fullNameController = TextEditingController();
-    final usernameController = TextEditingController();
-    final emailController = TextEditingController();
-    final phoneController = TextEditingController();
-    final branchController = TextEditingController();
-    final departmentController = TextEditingController();
-
-    String selectedCreateRole = 'staff';
-    bool isSaving = false;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: softWhite,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-      ),
-      builder: (bottomSheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(bottomSheetContext).viewInsets.bottom,
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              child: StatefulBuilder(
-                builder: (context, setModalState) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Center(
-                        child: CircleAvatar(
-                          radius: 40,
-                          backgroundColor: cream,
-                          child: Icon(
-                            Icons.person_add,
-                            color: mulberry,
-                            size: 40,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Center(
-                        child: Text(
-                          'Create Staff Account',
-                          style: TextStyle(
-                            color: mulberryDark,
-                            fontFamily: 'Georgia',
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: cream,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: creamDark),
-                        ),
-                        child: Text(
-                          'The system will auto-generate a temporary password. The staff must change it after first login.',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      buildTextField(
-                        controller: fullNameController,
-                        label: 'Full Name',
-                        icon: Icons.badge,
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        controller: usernameController,
-                        label: 'Username',
-                        icon: Icons.alternate_email,
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        controller: emailController,
-                        label: 'Email',
-                        icon: Icons.email,
-                        keyboardType: TextInputType.emailAddress,
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        controller: phoneController,
-                        label: 'Phone',
-                        icon: Icons.phone,
-                        keyboardType: TextInputType.phone,
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        controller: branchController,
-                        label: 'Branch',
-                        icon: Icons.store,
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        controller: departmentController,
-                        label: 'Department',
-                        icon: Icons.apartment,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        value: selectedCreateRole,
-                        dropdownColor: softWhite,
-                        decoration: buildInputDecoration(
-                          label: 'Role',
-                          icon: Icons.admin_panel_settings,
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'staff',
-                            child: Text('Staff'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'supervisor',
-                            child: Text('Supervisor'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'manager',
-                            child: Text('Manager'),
-                          ),
-                        ],
-                        onChanged: isSaving
-                            ? null
-                            : (value) {
-                                if (value == null) return;
-                                setModalState(() {
-                                  selectedCreateRole = value;
-                                });
-                              },
-                      ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton.icon(
-                          onPressed: isSaving
-                              ? null
-                              : () async {
-                                  final fullName =
-                                      fullNameController.text.trim();
-                                  final username =
-                                      usernameController.text.trim();
-                                  final email = emailController.text.trim();
-
-                                  if (fullName.isEmpty ||
-                                      username.isEmpty ||
-                                      email.isEmpty) {
-                                    showMessage(
-                                      'Full name, username and email are required.',
-                                      isError: true,
-                                    );
-                                    return;
-                                  }
-
-                                  if (!email.contains('@')) {
-                                    showMessage(
-                                      'Please enter a valid email address.',
-                                      isError: true,
-                                    );
-                                    return;
-                                  }
-
-                                  final temporaryPassword =
-                                      generateTemporaryPassword();
-
-                                  setModalState(() {
-                                    isSaving = true;
-                                  });
-
-                                  final created = await createStaffAccount(
-                                    fullName: fullName,
-                                    username: username,
-                                    email: email,
-                                    temporaryPassword: temporaryPassword,
-                                    role: selectedCreateRole,
-                                    phone: phoneController.text.trim().isEmpty
-                                        ? null
-                                        : phoneController.text.trim(),
-                                    branch:
-                                        branchController.text.trim().isEmpty
-                                            ? null
-                                            : branchController.text.trim(),
-                                    department: departmentController.text
-                                            .trim()
-                                            .isEmpty
-                                        ? null
-                                        : departmentController.text.trim(),
-                                  );
-
-                                  if (!mounted) return;
-
-                                  if (created) {
-                                    Navigator.pop(bottomSheetContext);
-
-                                    await showTemporaryPasswordDialog(
-                                      email: email,
-                                      temporaryPassword: temporaryPassword,
-                                    );
-                                  } else {
-                                    setModalState(() {
-                                      isSaving = false;
-                                    });
-                                  }
-                                },
-                          icon: isSaving
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: cream,
-                                  ),
-                                )
-                              : const Icon(Icons.person_add),
-                          label: Text(
-                            isSaving ? 'Creating...' : 'Create Account',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: mulberry,
-                            foregroundColor: cream,
-                            disabledBackgroundColor:
-                                mulberry.withOpacity(0.45),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    fullNameController.dispose();
-    usernameController.dispose();
-    emailController.dispose();
-    phoneController.dispose();
-    branchController.dispose();
-    departmentController.dispose();
   }
 
   Future<void> showEditStaffSheet(Map<String, dynamic> staff) async {
@@ -1650,4 +1750,14 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
             ),
     );
   }
+}
+
+class CreateStaffResult {
+  final bool success;
+  final String? message;
+
+  CreateStaffResult({
+    required this.success,
+    this.message,
+  });
 }

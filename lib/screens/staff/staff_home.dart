@@ -65,10 +65,10 @@ class _StaffHomeState extends State<StaffHome> {
         .stream(primaryKey: ['notification_id'])
         .eq('user_id', user.id)
         .map((rows) {
-          return rows.where((notification) {
-            return notification['is_read'] == false;
-          }).toList();
-        });
+      return rows.where((notification) {
+        return notification['is_read'] == false;
+      }).toList();
+    });
   }
 
   Future<void> loadProfileSummary() async {
@@ -122,7 +122,9 @@ class _StaffHomeState extends State<StaffHome> {
       });
     } catch (e) {
       debugPrint('Failed to load today schedule: $e');
+
       if (!mounted) return;
+
       setState(() {
         isScheduleLoading = false;
       });
@@ -170,12 +172,21 @@ class _StaffHomeState extends State<StaffHome> {
   }
 
   String formatRole(String role) {
-    if (role.trim().isEmpty) return 'Staff';
-    return role[0].toUpperCase() + role.substring(1);
+    final cleaned = role.trim();
+
+    if (cleaned.isEmpty) return 'Staff';
+
+    return cleaned[0].toUpperCase() + cleaned.substring(1);
   }
 
   String formatValue(String value) {
-    return value
+    final cleaned = value.trim();
+
+    if (cleaned.isEmpty) {
+      return '-';
+    }
+
+    return cleaned
         .replaceAll('_', ' ')
         .split(' ')
         .where((part) => part.trim().isNotEmpty)
@@ -188,7 +199,9 @@ class _StaffHomeState extends State<StaffHome> {
   }
 
   String getDutyText(Map<String, dynamic> schedule) {
-    return formatValue((schedule['duty_type'] ?? 'general operation').toString());
+    return formatValue(
+      (schedule['duty_type'] ?? 'general operation').toString(),
+    );
   }
 
   String getStatusText(Map<String, dynamic> schedule) {
@@ -498,7 +511,9 @@ class _StaffHomeState extends State<StaffHome> {
                     child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
-                        openPage(const ProfilePage());
+                        setState(() {
+                          currentIndex = 3;
+                        });
                       },
                       icon: const Icon(Icons.person_outline),
                       label: const Text('Go to Profile'),
@@ -517,67 +532,86 @@ class _StaffHomeState extends State<StaffHome> {
               ),
             ),
             const SizedBox(height: 12),
-            buildDrawerItem(
-              icon: Icons.home_outlined,
-              title: 'Home Dashboard',
-              onTap: () {
-                Navigator.pop(context);
-                setState(() {
-                  currentIndex = 0;
-                });
-              },
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  buildDrawerItem(
+                    icon: Icons.home_outlined,
+                    title: 'Home Dashboard',
+                    onTap: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        currentIndex = 0;
+                      });
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.task_alt_rounded,
+                    title: 'Daily Tasks',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openDailyTasks();
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.inventory_2_rounded,
+                    title: 'Stock & Inventory',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openStockAndInventory();
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.event_note_rounded,
+                    title: 'Schedule & SOP',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openScheduleAndSop();
+                    },
+                  ),
+                  const Divider(height: 22),
+                  buildDrawerItem(
+                    icon: Icons.menu_book,
+                    title: 'SOP',
+                    onTap: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        currentIndex = 1;
+                      });
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.fact_check,
+                    title: 'Daily Stock Count',
+                    onTap: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        currentIndex = 2;
+                      });
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.person,
+                    title: 'Profile',
+                    onTap: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        currentIndex = 3;
+                      });
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.notifications,
+                    title: 'Notifications',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openPage(const NotificationPage());
+                    },
+                  ),
+                ],
+              ),
             ),
-            buildDrawerItem(
-              icon: Icons.calendar_month,
-              title: 'My Schedule',
-              onTap: () {
-                Navigator.pop(context);
-                openPage(const WorkSchedulePage());
-              },
-            ),
-            buildDrawerItem(
-              icon: Icons.checklist,
-              title: 'Cleaning Checklist',
-              onTap: () {
-                Navigator.pop(context);
-                openPage(const CleaningChecklistPage());
-              },
-            ),
-            buildDrawerItem(
-              icon: Icons.fact_check,
-              title: 'Daily Stock Count',
-              onTap: () {
-                Navigator.pop(context);
-                openPage(const DailyStockCountPage());
-              },
-            ),
-            buildDrawerItem(
-              icon: Icons.menu_book,
-              title: 'SOP',
-              onTap: () {
-                Navigator.pop(context);
-                setState(() {
-                  currentIndex = 1;
-                });
-              },
-            ),
-            buildDrawerItem(
-              icon: Icons.inventory_2,
-              title: 'Inventory',
-              onTap: () {
-                Navigator.pop(context);
-                openPage(const InventoryPage());
-              },
-            ),
-            buildDrawerItem(
-              icon: Icons.history,
-              title: 'History Log',
-              onTap: () {
-                Navigator.pop(context);
-                openPage(const HistoryLogPage());
-              },
-            ),
-            const Spacer(),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
               child: SizedBox(
@@ -653,60 +687,125 @@ class _StaffHomeState extends State<StaffHome> {
           buildScheduleSection(),
           const SizedBox(height: 20),
           buildSectionTitle(
-            title: 'Operations',
-            subtitle: 'Checklist, stock count and SOP reference',
+            title: 'Staff Modules',
+            subtitle: 'Grouped tools for daily work',
           ),
           const SizedBox(height: 12),
           buildHomeMenuCard(
-            icon: Icons.checklist,
+            icon: Icons.task_alt_rounded,
+            title: 'Daily Tasks',
+            subtitle: 'Cleaning checklist and daily stock count',
+            color: mulberry,
+            onTap: openDailyTasks,
+          ),
+          buildHomeMenuCard(
+            icon: Icons.inventory_2_rounded,
+            title: 'Stock & Inventory',
+            subtitle: 'View inventory and movement history',
+            color: Colors.blue,
+            onTap: openStockAndInventory,
+          ),
+          buildHomeMenuCard(
+            icon: Icons.event_note_rounded,
+            title: 'Schedule & SOP',
+            subtitle: 'View work schedule and operation reference',
+            color: Colors.orange,
+            onTap: openScheduleAndSop,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void openDailyTasks() {
+    openPage(
+      StaffModulePage(
+        title: 'Daily Tasks',
+        subtitle: 'Complete cleaning checklist and submit stock count',
+        icon: Icons.task_alt_rounded,
+        color: mulberry,
+        items: [
+          StaffModuleItem(
+            icon: Icons.checklist_rounded,
             title: 'Cleaning Checklist',
             subtitle: 'Update opening, closing and weekly tasks',
             color: mulberry,
-            onTap: () {
-              openPage(const CleaningChecklistPage());
-            },
+            page: const CleaningChecklistPage(),
           ),
-          buildHomeMenuCard(
-            icon: Icons.fact_check,
+          StaffModuleItem(
+            icon: Icons.fact_check_rounded,
             title: 'Daily Stock Count',
             subtitle: 'Submit opening and closing stock count',
             color: Colors.green,
-            onTap: () {
-              setState(() {
-                currentIndex = 2;
-              });
-            },
+            useBottomTabIndex: 2,
           ),
-          buildHomeMenuCard(
-            icon: Icons.menu_book,
-            title: 'SOP',
-            subtitle: 'View cafe operation guide and recipe standard',
-            color: Colors.orange,
-            onTap: () {
-              setState(() {
-                currentIndex = 1;
-              });
-            },
-          ),
-          buildHomeMenuCard(
-            icon: Icons.inventory_2,
+        ],
+        onOpenBottomTab: (index) {
+          Navigator.pop(context);
+          setState(() {
+            currentIndex = index;
+          });
+        },
+      ),
+    );
+  }
+
+  void openStockAndInventory() {
+    openPage(
+      StaffModulePage(
+        title: 'Stock & Inventory',
+        subtitle: 'View current stock level and inventory movement history',
+        icon: Icons.inventory_2_rounded,
+        color: Colors.blue,
+        items: [
+          StaffModuleItem(
+            icon: Icons.inventory_2_rounded,
             title: 'Inventory',
             subtitle: 'View current stock level and item details',
             color: Colors.blue,
-            onTap: () {
-              openPage(const InventoryPage());
-            },
+            page: const InventoryPage(),
           ),
-          buildHomeMenuCard(
-            icon: Icons.history,
+          StaffModuleItem(
+            icon: Icons.history_rounded,
             title: 'History Log',
             subtitle: 'View inventory movement records',
             color: Colors.blueGrey,
-            onTap: () {
-              openPage(const HistoryLogPage());
-            },
+            page: const HistoryLogPage(),
           ),
         ],
+      ),
+    );
+  }
+
+  void openScheduleAndSop() {
+    openPage(
+      StaffModulePage(
+        title: 'Schedule & SOP',
+        subtitle: 'View your schedule and operation references',
+        icon: Icons.event_note_rounded,
+        color: Colors.orange,
+        items: [
+          StaffModuleItem(
+            icon: Icons.calendar_month_rounded,
+            title: 'My Schedule',
+            subtitle: 'View your assigned shift and duty',
+            color: Colors.indigo,
+            page: const WorkSchedulePage(),
+          ),
+          StaffModuleItem(
+            icon: Icons.menu_book_rounded,
+            title: 'SOP',
+            subtitle: 'View cafe operation guide and recipe standard',
+            color: Colors.orange,
+            useBottomTabIndex: 1,
+          ),
+        ],
+        onOpenBottomTab: (index) {
+          Navigator.pop(context);
+          setState(() {
+            currentIndex = index;
+          });
+        },
       ),
     );
   }
@@ -733,20 +832,28 @@ class _StaffHomeState extends State<StaffHome> {
     );
   }
 
-  Widget buildEmptyScheduleCard({required String title, required String subtitle}) {
+  Widget buildEmptyScheduleCard({
+    required String title,
+    required String subtitle,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: softWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: creamDark.withOpacity(0.75)),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
       ),
       child: Row(
         children: [
           CircleAvatar(
             backgroundColor: Colors.grey.withOpacity(0.12),
-            child: const Icon(Icons.event_busy, color: Colors.grey),
+            child: const Icon(
+              Icons.event_busy,
+              color: Colors.grey,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -763,7 +870,10 @@ class _StaffHomeState extends State<StaffHome> {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12.5,
+                  ),
                 ),
               ],
             ),
@@ -781,7 +891,9 @@ class _StaffHomeState extends State<StaffHome> {
       decoration: BoxDecoration(
         color: softWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: creamDark.withOpacity(0.75)),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
         boxShadow: [
           BoxShadow(
             color: mulberryDark.withOpacity(0.04),
@@ -797,7 +909,10 @@ class _StaffHomeState extends State<StaffHome> {
             children: [
               CircleAvatar(
                 backgroundColor: mulberry.withOpacity(0.10),
-                child: const Icon(Icons.event_available, color: mulberry),
+                child: const Icon(
+                  Icons.event_available,
+                  color: mulberry,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -823,7 +938,10 @@ class _StaffHomeState extends State<StaffHome> {
                   ],
                 ),
               ),
-              buildMiniBadge(getStatusText(schedule), mulberry),
+              buildMiniBadge(
+                getStatusText(schedule),
+                mulberry,
+              ),
             ],
           ),
           const SizedBox(height: 13),
@@ -831,9 +949,15 @@ class _StaffHomeState extends State<StaffHome> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              buildInfoChip(Icons.assignment, 'Duty: ${getDutyText(schedule)}'),
+              buildInfoChip(
+                Icons.assignment,
+                'Duty: ${getDutyText(schedule)}',
+              ),
               if ((schedule['notes'] ?? '').toString().trim().isNotEmpty)
-                buildInfoChip(Icons.notes, schedule['notes'].toString()),
+                buildInfoChip(
+                  Icons.notes,
+                  schedule['notes'].toString(),
+                ),
             ],
           ),
         ],
@@ -843,7 +967,10 @@ class _StaffHomeState extends State<StaffHome> {
 
   Widget buildMiniBadge(String text, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
       decoration: BoxDecoration(
         color: color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(20),
@@ -861,16 +988,25 @@ class _StaffHomeState extends State<StaffHome> {
 
   Widget buildInfoChip(IconData icon, String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 6,
+      ),
       decoration: BoxDecoration(
         color: cream,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: creamDark.withOpacity(0.7)),
+        border: Border.all(
+          color: creamDark.withOpacity(0.7),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: mulberry),
+          Icon(
+            icon,
+            size: 14,
+            color: mulberry,
+          ),
           const SizedBox(width: 5),
           Flexible(
             child: Text(
@@ -887,7 +1023,10 @@ class _StaffHomeState extends State<StaffHome> {
     );
   }
 
-  Widget buildSectionTitle({required String title, required String subtitle}) {
+  Widget buildSectionTitle({
+    required String title,
+    required String subtitle,
+  }) {
     return Row(
       children: [
         Container(
@@ -939,7 +1078,9 @@ class _StaffHomeState extends State<StaffHome> {
       decoration: BoxDecoration(
         color: softWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: creamDark.withOpacity(0.75)),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
         boxShadow: [
           BoxShadow(
             color: mulberryDark.withOpacity(0.04),
@@ -952,7 +1093,10 @@ class _StaffHomeState extends State<StaffHome> {
         contentPadding: const EdgeInsets.all(14),
         leading: CircleAvatar(
           backgroundColor: color.withOpacity(0.12),
-          child: Icon(icon, color: color),
+          child: Icon(
+            icon,
+            color: color,
+          ),
         ),
         title: Text(
           title,
@@ -963,7 +1107,9 @@ class _StaffHomeState extends State<StaffHome> {
         ),
         subtitle: Text(
           subtitle,
-          style: TextStyle(color: Colors.grey.shade600),
+          style: TextStyle(
+            color: Colors.grey.shade600,
+          ),
         ),
         trailing: Icon(
           Icons.arrow_forward_ios,
@@ -990,8 +1136,14 @@ class _StaffHomeState extends State<StaffHome> {
     }
   }
 
-  BottomNavigationBarItem navItem({required IconData icon, required String label}) {
-    return BottomNavigationBarItem(icon: Icon(icon), label: label);
+  BottomNavigationBarItem navItem({
+    required IconData icon,
+    required String label,
+  }) {
+    return BottomNavigationBarItem(
+      icon: Icon(icon),
+      label: label,
+    );
   }
 
   @override
@@ -1003,14 +1155,19 @@ class _StaffHomeState extends State<StaffHome> {
       body: Column(
         children: [
           buildHeader(),
-          Expanded(child: buildCurrentPage()),
+          Expanded(
+            child: buildCurrentPage(),
+          ),
         ],
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: softWhite,
           border: Border(
-            top: BorderSide(color: creamDark.withOpacity(0.9), width: 1),
+            top: BorderSide(
+              color: creamDark.withOpacity(0.9),
+              width: 1,
+            ),
           ),
           boxShadow: [
             BoxShadow(
@@ -1027,8 +1184,14 @@ class _StaffHomeState extends State<StaffHome> {
           backgroundColor: softWhite,
           selectedItemColor: mulberry,
           unselectedItemColor: Colors.grey.shade600,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+          selectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+          ),
           onTap: (index) {
             setState(() {
               currentIndex = index;
@@ -1036,12 +1199,222 @@ class _StaffHomeState extends State<StaffHome> {
             refreshHome();
           },
           items: [
-            navItem(icon: Icons.home_outlined, label: 'Home'),
-            navItem(icon: Icons.menu_book, label: 'SOP'),
-            navItem(icon: Icons.fact_check, label: 'Stock'),
-            navItem(icon: Icons.person_outline, label: 'Profile'),
+            navItem(
+              icon: Icons.home_outlined,
+              label: 'Home',
+            ),
+            navItem(
+              icon: Icons.menu_book,
+              label: 'SOP',
+            ),
+            navItem(
+              icon: Icons.fact_check,
+              label: 'Stock',
+            ),
+            navItem(
+              icon: Icons.person_outline,
+              label: 'Profile',
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class StaffModuleItem {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final Widget? page;
+  final int? useBottomTabIndex;
+
+  const StaffModuleItem({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    this.page,
+    this.useBottomTabIndex,
+  });
+}
+
+class StaffModulePage extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final List<StaffModuleItem> items;
+  final void Function(int index)? onOpenBottomTab;
+
+  const StaffModulePage({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.items,
+    this.onOpenBottomTab,
+  });
+
+  static const Color mulberry = Color(0xFF6D2B50);
+  static const Color mulberryDark = Color(0xFF4A1A35);
+  static const Color cream = Color(0xFFF5ECD7);
+  static const Color creamDark = Color(0xFFE8D5B5);
+  static const Color softWhite = Color(0xFFFFFCF7);
+
+  void openItem(BuildContext context, StaffModuleItem item) {
+    if (item.useBottomTabIndex != null) {
+      onOpenBottomTab?.call(item.useBottomTabIndex!);
+      return;
+    }
+
+    if (item.page == null) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => item.page!),
+    );
+  }
+
+  Widget buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color.withOpacity(0.95),
+            mulberry,
+            mulberryDark,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: mulberryDark.withOpacity(0.16),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 27,
+            backgroundColor: cream.withOpacity(0.18),
+            child: Icon(
+              icon,
+              color: cream,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: cream,
+                    fontFamily: 'Georgia',
+                    fontSize: 21,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: creamDark,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildModuleCard(BuildContext context, StaffModuleItem item) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 13),
+      decoration: BoxDecoration(
+        color: softWhite,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: creamDark.withOpacity(0.75),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: mulberryDark.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(14),
+        leading: CircleAvatar(
+          backgroundColor: item.color.withOpacity(0.12),
+          child: Icon(
+            item.icon,
+            color: item.color,
+          ),
+        ),
+        title: Text(
+          item.title,
+          style: const TextStyle(
+            color: mulberryDark,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          item.subtitle,
+          style: TextStyle(
+            color: Colors.grey.shade600,
+          ),
+        ),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.grey.shade500,
+        ),
+        onTap: () => openItem(context, item),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: cream,
+      appBar: AppBar(
+        backgroundColor: mulberry,
+        foregroundColor: cream,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: cream,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(18),
+        children: [
+          buildHeader(),
+          const SizedBox(height: 16),
+          ...items.map((item) => buildModuleCard(context, item)),
+        ],
       ),
     );
   }

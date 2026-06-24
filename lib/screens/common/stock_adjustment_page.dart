@@ -40,6 +40,8 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   List<Map<String, dynamic>> inventoryItems = [];
   Map<String, dynamic>? selectedItem;
 
+  DateTime? selectedExpiryDate;
+
   static const Color mulberry = Color(0xFF6D2B50);
   static const Color mulberryDark = Color(0xFF4A1A35);
   static const Color mulberryLight = Color(0xFF8B3D68);
@@ -132,6 +134,19 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     }
 
     return value.toString().substring(0, 10);
+  }
+
+  String formatDateOnly(DateTime date) {
+    final year = date.year.toString();
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+
+    return '$year-$month-$day';
+  }
+
+  String getSelectedExpiryText() {
+    if (selectedExpiryDate == null) return '';
+    return formatDateOnly(selectedExpiryDate!);
   }
 
   DateTime? parseDate(String value) {
@@ -348,6 +363,10 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     return selectedMovementType == StockMovementType.correction;
   }
 
+  bool isStockInMovement() {
+    return selectedMovementType == StockMovementType.stockIn;
+  }
+
   num getPackageCountInput() {
     return num.tryParse(packageCountController.text.trim()) ?? 0;
   }
@@ -389,6 +408,36 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     }
 
     return current;
+  }
+
+  Future<void> pickExpiryDate() async {
+    final now = DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: selectedExpiryDate ?? now.add(const Duration(days: 7)),
+      firstDate: now,
+      lastDate: DateTime(now.year + 5),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: mulberry,
+              onPrimary: cream,
+              surface: softWhite,
+              onSurface: mulberryDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      selectedExpiryDate = picked;
+    });
   }
 
   Future<void> findItemByBarcode(String barcode) async {
@@ -520,9 +569,47 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
   void clearSelectedItem() {
     setState(() {
       selectedItem = null;
+      selectedExpiryDate = null;
       packageCountController.clear();
       remarksController.clear();
     });
+  }
+
+  Future<void> insertStockInBatch({
+    required Map<String, dynamic> item,
+    required num baseQuantity,
+    required String remarks,
+    required String userId,
+  }) async {
+    if (selectedExpiryDate == null) {
+      throw Exception('Expiry date is required for stock in.');
+    }
+
+    await supabase.from('inventory_batches').insert({
+      'item_id': item['item_id'],
+      'received_quantity': baseQuantity,
+      'remaining_quantity': baseQuantity,
+      'received_date': DateTime.now().toIso8601String().substring(0, 10),
+      'expiry_date': getSelectedExpiryText(),
+      'source': 'stock_in',
+      'notes': remarks.isEmpty ? null : remarks,
+      'created_by': userId,
+      'is_active': true,
+    });
+  }
+
+  Future<void> deductBatchByFifo({
+    required Map<String, dynamic> item,
+    required num baseQuantity,
+  }) async {
+    await supabase.rpc(
+      'fn_fifo_deduct_stock',
+      params: {
+        'p_item_id': item['item_id'],
+        'p_quantity': baseQuantity,
+        'p_movement_type': getMovementTypeText(),
+      },
+    );
   }
 
   Future<void> saveAdjustment() async {
@@ -542,6 +629,11 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
     if (packageCount <= 0) {
       showMessage('Please enter a valid quantity.', isError: true);
+      return;
+    }
+
+    if (isStockInMovement() && selectedExpiryDate == null) {
+      showMessage('Please select expiry date for stock in.', isError: true);
       return;
     }
 
@@ -565,6 +657,13 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     });
 
     try {
+      if (isDeductMovement()) {
+        await deductBatchByFifo(
+          item: item,
+          baseQuantity: baseQuantity,
+        );
+      }
+
       await supabase.from('inventory_items').update({
         'current_quantity': afterQuantity,
         'updated_at': DateTime.now().toIso8601String(),
@@ -579,11 +678,19 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         'base_quantity': baseQuantity,
         'before_quantity': currentQuantity,
         'after_quantity': afterQuantity,
-        'expiry_date': getExpiryDate(item).isEmpty ? null : getExpiryDate(item),
         'remarks': remarks.isEmpty ? null : remarks,
         'performed_by': user.id,
         'created_at': DateTime.now().toIso8601String(),
       });
+
+      if (isStockInMovement()) {
+        await insertStockInBatch(
+          item: item,
+          baseQuantity: baseQuantity,
+          remarks: remarks,
+          userId: user.id,
+        );
+      }
 
       if (afterQuantity <= getMinimumQuantity(item)) {
         await notifyLowStock(
@@ -596,6 +703,12 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
 
       packageCountController.clear();
       remarksController.clear();
+
+      if (isStockInMovement()) {
+        setState(() {
+          selectedExpiryDate = null;
+        });
+      }
 
       await loadInventoryItems();
 
@@ -803,6 +916,10 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
       onTap: () {
         setState(() {
           selectedMovementType = type;
+
+          if (selectedMovementType != StockMovementType.stockIn) {
+            selectedExpiryDate = null;
+          }
         });
       },
       child: Container(
@@ -999,14 +1116,14 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              buildSmallBadge('Current: $current $unit'),
-              buildSmallBadge('Minimum: $minimum $unit'),
-              buildSmallBadge('1 $packageName = $packageQuantity $unit'),
+              buildSmallBadge('Current: ${formatNumber(current)} $unit'),
+              buildSmallBadge('Minimum: ${formatNumber(minimum)} $unit'),
+              buildSmallBadge('1 $packageName = ${formatNumber(packageQuantity)} $unit'),
               if (getBarcode(item).isNotEmpty)
                 buildSmallBadge('Barcode: ${getBarcode(item)}'),
               if (expiryDate.isNotEmpty)
                 buildColoredBadge(
-                  'Expiry: $expiryDate',
+                  'Item Expiry: $expiryDate',
                   expired
                       ? Colors.red
                       : expiringSoon
@@ -1022,7 +1139,65 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     );
   }
 
-    Widget buildQuantityForm() {
+  Widget buildExpiryDatePicker() {
+    if (!isStockInMovement()) {
+      return const SizedBox();
+    }
+
+    final expiryText = getSelectedExpiryText();
+
+    return Column(
+      children: [
+        const SizedBox(height: 12),
+        InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: pickExpiryDate,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: cream,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: selectedExpiryDate == null
+                    ? Colors.orange.shade300
+                    : Colors.green.shade200,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.event,
+                  color:
+                      selectedExpiryDate == null ? Colors.orange : Colors.green,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    selectedExpiryDate == null
+                        ? 'Select expiry date for this stock batch'
+                        : 'Batch expiry date: $expiryText',
+                    style: TextStyle(
+                      color: selectedExpiryDate == null
+                          ? Colors.orange.shade900
+                          : Colors.green.shade800,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  color: Colors.grey.shade600,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildQuantityForm() {
     if (selectedItem == null) {
       return const SizedBox();
     }
@@ -1097,6 +1272,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
               ),
             ),
           ),
+          buildExpiryDatePicker(),
           const SizedBox(height: 12),
           if (!isCorrectionMovement())
             Container(
@@ -1307,8 +1483,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
               child: Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor:
-                        selected ? Colors.orange.shade100 : mulberry.withOpacity(0.12),
+                    backgroundColor: selected
+                        ? Colors.orange.shade100
+                        : mulberry.withOpacity(0.12),
                     child: Icon(
                       selected ? Icons.check : Icons.inventory_2,
                       color: selected ? Colors.orange : mulberry,
@@ -1340,13 +1517,13 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                           spacing: 7,
                           runSpacing: 6,
                           children: [
-                            buildSmallBadge('$current $unit'),
+                            buildSmallBadge('${formatNumber(current)} $unit'),
                             buildSmallBadge(
-                              '1 $packageName = $packageQuantity $unit',
+                              '1 $packageName = ${formatNumber(packageQuantity)} $unit',
                             ),
                             if (expiryDate.isNotEmpty)
                               buildColoredBadge(
-                                'Expiry: $expiryDate',
+                                'Item Expiry: $expiryDate',
                                 expired
                                     ? Colors.red
                                     : expiringSoon

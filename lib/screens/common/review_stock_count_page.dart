@@ -29,6 +29,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
   List<Map<String, dynamic>> inventoryItems = [];
   List<Map<String, dynamic>> openingCounts = [];
   List<Map<String, dynamic>> closingCounts = [];
+  List<Map<String, dynamic>> inventoryBatches = [];
 
   static const Color mulberry = Color(0xFF6D2B50);
   static const Color mulberryDark = Color(0xFF4A1A35);
@@ -60,6 +61,14 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
           .select()
           .order('item_name', ascending: true);
 
+      final batchResponse = await supabase
+          .from('inventory_batches')
+          .select()
+          .eq('is_active', true)
+          .gt('remaining_quantity', 0)
+          .order('expiry_date', ascending: true)
+          .order('received_date', ascending: true);
+
       final openingResponse = await supabase
           .from('daily_stock_counts')
           .select()
@@ -89,6 +98,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
 
       setState(() {
         inventoryItems = List<Map<String, dynamic>>.from(itemsResponse);
+        inventoryBatches = List<Map<String, dynamic>>.from(batchResponse);
         openingCounts = List<Map<String, dynamic>>.from(openingResponse);
         closingCounts = List<Map<String, dynamic>>.from(closingResponse);
         isLoading = false;
@@ -130,16 +140,6 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
   String getUnit(Map<String, dynamic> item) {
     return (item['unit'] ?? item['uom'] ?? item['measurement_unit'] ?? 'unit')
         .toString();
-  }
-
-  String getExpiryDate(Map<String, dynamic> item) {
-    final value = item['expiry_date'] ?? item['expiration_date'];
-
-    if (value == null || value.toString().trim().isEmpty) {
-      return '';
-    }
-
-    return value.toString().substring(0, 10);
   }
 
   num getCurrentQuantity(Map<String, dynamic> item) {
@@ -215,6 +215,127 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
     }
   }
 
+  String getBatchItemId(Map<String, dynamic> batch) {
+    return (batch['item_id'] ?? '').toString();
+  }
+
+  num getBatchRemainingQuantity(Map<String, dynamic> batch) {
+    final value = batch['remaining_quantity'] ?? 0;
+    return num.tryParse(value.toString()) ?? 0;
+  }
+
+  String getBatchExpiryDate(Map<String, dynamic> batch) {
+    final value = batch['expiry_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '-';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  String getBatchReceivedDate(Map<String, dynamic> batch) {
+    final value = batch['received_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '-';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  List<Map<String, dynamic>> getBatchesForItem(String itemId) {
+    final batches = inventoryBatches.where((batch) {
+      return getBatchItemId(batch) == itemId &&
+          getBatchRemainingQuantity(batch) > 0;
+    }).toList();
+
+    batches.sort((a, b) {
+      final aExpiry = getBatchExpiryDate(a);
+      final bExpiry = getBatchExpiryDate(b);
+
+      final expiryCompare = aExpiry.compareTo(bExpiry);
+
+      if (expiryCompare != 0) {
+        return expiryCompare;
+      }
+
+      final aReceived = getBatchReceivedDate(a);
+      final bReceived = getBatchReceivedDate(b);
+
+      return aReceived.compareTo(bReceived);
+    });
+
+    return batches;
+  }
+
+  Map<String, dynamic>? getRecommendedBatch(String itemId) {
+    final batches = getBatchesForItem(itemId);
+
+    if (batches.isEmpty) {
+      return null;
+    }
+
+    return batches.first;
+  }
+
+  String getFifoPreviewText({
+    required String itemId,
+    required num usedQuantity,
+    required String unit,
+  }) {
+    if (usedQuantity <= 0) {
+      return 'No stock deduction needed.';
+    }
+
+    final batches = getBatchesForItem(itemId);
+
+    if (batches.isEmpty) {
+      return 'No active batch found for FIFO deduction.';
+    }
+
+    num remainingNeed = usedQuantity;
+    final List<String> lines = [];
+
+    for (final batch in batches) {
+      if (remainingNeed <= 0) break;
+
+      final batchQty = getBatchRemainingQuantity(batch);
+      final deductQty = remainingNeed > batchQty ? batchQty : remainingNeed;
+      final expiry = getBatchExpiryDate(batch);
+
+      lines.add(
+        '${formatNumber(deductQty)} $unit from batch expiring $expiry',
+      );
+
+      remainingNeed -= deductQty;
+    }
+
+    if (remainingNeed > 0) {
+      lines.add(
+        'Short by ${formatNumber(remainingNeed)} $unit because batch stock is not enough.',
+      );
+    }
+
+    return lines.join('\n');
+  }
+
+  bool hasEnoughBatchStock({
+    required String itemId,
+    required num usedQuantity,
+  }) {
+    if (usedQuantity <= 0) {
+      return true;
+    }
+
+    final totalBatchQuantity = getBatchesForItem(itemId).fold<num>(
+      0,
+      (sum, batch) => sum + getBatchRemainingQuantity(batch),
+    );
+
+    return totalBatchQuantity >= usedQuantity;
+  }
+
   List<String> getCategories() {
     final categories = closingCounts
         .map((count) {
@@ -260,10 +381,15 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
           return false;
         }
 
+        final itemId = getItemId(item);
         final name = getItemName(item).toLowerCase();
         final category = getCategory(item).toLowerCase();
+        final batch = getRecommendedBatch(itemId);
+        final expiry = batch == null ? '' : getBatchExpiryDate(batch);
 
-        return name.contains(query) || category.contains(query);
+        return name.contains(query) ||
+            category.contains(query) ||
+            expiry.contains(query);
       }).toList();
     }
 
@@ -327,6 +453,24 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
     }
   }
 
+  Future<void> deductBatchByFifo({
+    required String itemId,
+    required num usedQuantity,
+  }) async {
+    if (usedQuantity <= 0) {
+      return;
+    }
+
+    await supabase.rpc(
+      'fn_fifo_deduct_stock',
+      params: {
+        'p_item_id': itemId,
+        'p_quantity': usedQuantity,
+        'p_movement_type': 'daily_usage',
+      },
+    );
+  }
+
   Future<void> approveCount(Map<String, dynamic> closingCount) async {
     if (isProcessing) {
       return;
@@ -376,6 +520,14 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
       return;
     }
 
+    if (!hasEnoughBatchStock(itemId: itemId, usedQuantity: usedQty)) {
+      showMessage(
+        'Not enough batch stock for FIFO deduction. Please check stock batches.',
+        isError: true,
+      );
+      return;
+    }
+
     final currentInventory = getCurrentQuantity(item);
     final newInventory = currentInventory - usedQty;
     final finalInventory = newInventory < 0 ? 0 : newInventory;
@@ -386,6 +538,11 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
     });
 
     try {
+      await deductBatchByFifo(
+        itemId: itemId,
+        usedQuantity: usedQty,
+      );
+
       await supabase.from('inventory_items').update({
         'current_quantity': finalInventory,
         'updated_at': DateTime.now().toIso8601String(),
@@ -409,9 +566,8 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         'before_quantity': currentInventory,
         'after_quantity': finalInventory,
         'daily_count_id': closingCount['count_id'],
-        'expiry_date': getExpiryDate(item).isEmpty ? null : getExpiryDate(item),
         'remarks':
-            'Daily usage approved from stock count for $selectedDateText. Used: ${formatNumber(usedQty)} ${getUnit(item)}',
+            'Daily usage approved from stock count for $selectedDateText. Used: ${formatNumber(usedQty)} ${getUnit(item)}. FIFO deduction applied.',
         'performed_by': user.id,
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -428,7 +584,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         staffId: closingCount['staff_id'],
         title: 'Stock Count Approved',
         message:
-            '${getItemName(item)} closing count has been approved. Inventory deducted by ${formatNumber(usedQty)} ${getUnit(item)}.',
+            '${getItemName(item)} closing count has been approved. Inventory deducted by ${formatNumber(usedQty)} ${getUnit(item)} using FIFO.',
         targetPage: 'inventory',
         targetId: getItemId(item),
       );
@@ -440,7 +596,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         );
       }
 
-      showMessage('Stock count approved. Usage summary has been saved.');
+      showMessage('Stock count approved. FIFO deduction has been applied.');
 
       await loadReviewData();
     } catch (e) {
@@ -843,7 +999,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         fontWeight: FontWeight.w500,
       ),
       decoration: InputDecoration(
-        hintText: 'Search item...',
+        hintText: 'Search item or expiry...',
         hintStyle: TextStyle(
           color: Colors.grey.shade500,
         ),
@@ -901,6 +1057,12 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
     final currentInventory = getCurrentQuantity(item);
     final afterApproval = currentInventory - usedQty;
     final finalInventory = afterApproval < 0 ? 0 : afterApproval;
+
+    final recommendedBatch = getRecommendedBatch(itemId);
+    final enoughBatchStock = hasEnoughBatchStock(
+      itemId: itemId,
+      usedQuantity: usedQty,
+    );
 
     final isPending = status == 'pending';
     final isApproved = status == 'approved';
@@ -999,10 +1161,26 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
                   buildBadge(
                     'After approve: ${formatNumber(finalInventory)} $unit',
                   ),
+                if (recommendedBatch != null)
+                  buildStatusBadge(
+                    'FIFO Exp ${getBatchExpiryDate(recommendedBatch)}',
+                    Colors.green,
+                  )
+                else
+                  buildStatusBadge(
+                    'No Batch',
+                    Colors.red,
+                  ),
                 if (getInventoryDeducted(closingCount))
                   buildStatusBadge('Deducted', Colors.green),
               ],
             ),
+            if (isPending && usedQty > 0) ...[
+              const SizedBox(height: 10),
+              buildInfoBox(
+                'FIFO deduction preview:\n${getFifoPreviewText(itemId: itemId, usedQuantity: usedQty, unit: unit)}',
+              ),
+            ],
             if (openingCount == null) ...[
               const SizedBox(height: 10),
               buildWarningBox('Opening count missing. Cannot approve this item.'),
@@ -1011,6 +1189,12 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
               const SizedBox(height: 10),
               buildWarningBox(
                 'Invalid count. Closing balance is greater than opening quantity.',
+              ),
+            ],
+            if (!enoughBatchStock && usedQty > 0) ...[
+              const SizedBox(height: 10),
+              buildWarningBox(
+                'Batch stock is not enough for FIFO deduction. Please check inventory batches before approving.',
               ),
             ],
             if (closingCount['remarks'] != null &&
@@ -1068,7 +1252,8 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
                     child: ElevatedButton.icon(
                       onPressed: isThisCardProcessing ||
                               openingCount == null ||
-                              usedQty < 0
+                              usedQty < 0 ||
+                              !enoughBatchStock
                           ? null
                           : () => approveCount(closingCount),
                       icon: isThisCardProcessing
@@ -1140,6 +1325,28 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
           color: color,
           fontSize: 11,
           fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget buildInfoBox(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.green.shade100,
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Colors.green.shade900,
+          fontWeight: FontWeight.w600,
+          height: 1.35,
         ),
       ),
     );
