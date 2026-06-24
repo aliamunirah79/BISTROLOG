@@ -5,6 +5,7 @@ import '../auth/login_page.dart';
 import '../common/profile_page.dart';
 import '../common/notification_page.dart';
 import '../common/inventory_page.dart';
+import '../common/history_log_page.dart';
 import '../common/stock_adjustment_page.dart';
 import '../common/review_stock_count_page.dart';
 import '../common/work_schedule_page.dart';
@@ -535,6 +536,15 @@ class _ManagerHomeState extends State<ManagerHome> {
             color: Colors.orange,
             onTap: () {
               openPage(const StockAdjustmentPage());
+            },
+          ),
+          buildHomeMenuCard(
+            icon: Icons.history,
+            title: 'History Log',
+            subtitle: 'View inventory changes and stock movements',
+            color: Colors.blueGrey,
+            onTap: () {
+              openPage(const HistoryLogPage());
             },
           ),
           buildHomeMenuCard(
@@ -1072,6 +1082,14 @@ class _ManagerHomeState extends State<ManagerHome> {
                     onTap: () {
                       Navigator.pop(context);
                       openPage(const StockAdjustmentPage());
+                    },
+                  ),
+                  buildDrawerItem(
+                    icon: Icons.history,
+                    title: 'History Log',
+                    onTap: () {
+                      Navigator.pop(context);
+                      openPage(const HistoryLogPage());
                     },
                   ),
                   buildDrawerItem(

@@ -132,6 +132,16 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         .toString();
   }
 
+  String getExpiryDate(Map<String, dynamic> item) {
+    final value = item['expiry_date'] ?? item['expiration_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
   num getCurrentQuantity(Map<String, dynamic> item) {
     final value = item['current_quantity'] ??
         item['quantity'] ??
@@ -399,6 +409,7 @@ class _ReviewStockCountPageState extends State<ReviewStockCountPage> {
         'before_quantity': currentInventory,
         'after_quantity': finalInventory,
         'daily_count_id': closingCount['count_id'],
+        'expiry_date': getExpiryDate(item).isEmpty ? null : getExpiryDate(item),
         'remarks':
             'Daily usage approved from stock count for $selectedDateText. Used: ${formatNumber(usedQty)} ${getUnit(item)}',
         'performed_by': user.id,

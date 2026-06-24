@@ -204,6 +204,62 @@ class _InventoryPageState extends State<InventoryPage> {
     return value.toString();
   }
 
+  String getExpiryDate(Map<String, dynamic> item) {
+    final value = item['expiry_date'] ?? item['expiration_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  DateTime? parseDate(String value) {
+    if (value.trim().isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(value.trim());
+  }
+
+  String formatDisplayDate(String value) {
+    final date = parseDate(value);
+
+    if (date == null) {
+      return '-';
+    }
+
+    return date.toIso8601String().substring(0, 10);
+  }
+
+  bool isExpired(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.isBefore(today);
+  }
+
+  bool isExpiringSoon(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null || isExpired(item)) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.difference(today).inDays <= 7;
+  }
+
   String getPackageName(Map<String, dynamic> item) {
     final value = item['package_name'];
 
@@ -321,6 +377,14 @@ class _InventoryPageState extends State<InventoryPage> {
         return 'Correction';
       case 'daily_usage':
         return 'Daily Usage';
+      case 'item_created':
+        return 'Item Created';
+      case 'item_updated':
+        return 'Item Updated';
+      case 'item_deactivated':
+        return 'Item Deactivated';
+      case 'item_reactivated':
+        return 'Item Reactivated';
       default:
         return type.replaceAll('_', ' ').toUpperCase();
     }
@@ -338,6 +402,13 @@ class _InventoryPageState extends State<InventoryPage> {
         return Colors.red;
       case 'correction':
         return Colors.blue;
+      case 'item_created':
+      case 'item_reactivated':
+        return Colors.green;
+      case 'item_updated':
+        return Colors.blue;
+      case 'item_deactivated':
+        return Colors.orange;
       default:
         return mulberry;
     }
@@ -356,6 +427,14 @@ class _InventoryPageState extends State<InventoryPage> {
         return Icons.event_busy;
       case 'correction':
         return Icons.tune;
+      case 'item_created':
+        return Icons.add_box;
+      case 'item_updated':
+        return Icons.edit_note;
+      case 'item_deactivated':
+        return Icons.block;
+      case 'item_reactivated':
+        return Icons.restore;
       default:
         return Icons.history;
     }
@@ -404,11 +483,13 @@ class _InventoryPageState extends State<InventoryPage> {
       final category = getCategory(item).toLowerCase();
       final barcode = getBarcode(item).toLowerCase();
       final supplier = getSupplier(item).toLowerCase();
+      final expiryDate = getExpiryDate(item).toLowerCase();
 
       return name.contains(query) ||
           category.contains(query) ||
           barcode.contains(query) ||
-          supplier.contains(query);
+          supplier.contains(query) ||
+          expiryDate.contains(query);
     }).toList();
   }
 
@@ -702,6 +783,9 @@ class _InventoryPageState extends State<InventoryPage> {
     final barcode = getBarcode(item);
     final supplier = getSupplier(item);
     final lowStock = isLowStock(item);
+    final expiryDate = getExpiryDate(item);
+    final expired = isExpired(item);
+    final expiringSoon = isExpiringSoon(item);
 
     showModalBottomSheet(
       context: context,
@@ -777,6 +861,25 @@ class _InventoryPageState extends State<InventoryPage> {
                             '1 $packageName = ${formatNumber(packageQty)} $unit',
                             Colors.blue,
                           ),
+                          if (expiryDate.isNotEmpty)
+                            buildDetailBadge(
+                              'Expiry: ${formatDisplayDate(expiryDate)}',
+                              expired
+                                  ? Colors.red
+                                  : expiringSoon
+                                      ? Colors.orange
+                                      : Colors.green,
+                            ),
+                          if (expired)
+                            buildDetailBadge(
+                              'Expired',
+                              Colors.red,
+                            ),
+                          if (expiringSoon)
+                            buildDetailBadge(
+                              'Expiring Soon',
+                              Colors.orange,
+                            ),
                           if (barcode != '-')
                             buildDetailBadge(
                               'Barcode: $barcode',
@@ -890,6 +993,7 @@ class _InventoryPageState extends State<InventoryPage> {
     final remarks = movement['remarks'];
     final performedBy = movement['performed_by'];
     final createdAt = movement['created_at'];
+    final expiryDate = movement['expiry_date'];
 
     final packageCount = movement['package_count'];
     final packageName = movement['package_name'];
@@ -957,6 +1061,11 @@ class _InventoryPageState extends State<InventoryPage> {
                       if (packageCount != null && packageName != null)
                         buildMiniHistoryBadge(
                           '${formatNumber(packageCount)} $packageName',
+                        ),
+                      if (expiryDate != null &&
+                          expiryDate.toString().trim().isNotEmpty)
+                        buildMiniHistoryBadge(
+                          'Expiry: ${formatDisplayDate(expiryDate.toString())}',
                         ),
                     ],
                   ),
@@ -1269,14 +1378,25 @@ class _InventoryPageState extends State<InventoryPage> {
     final barcode = getBarcode(item);
     final supplier = getSupplier(item);
     final lowStock = isLowStock(item);
+    final expiryDate = getExpiryDate(item);
+    final expired = isExpired(item);
+    final expiringSoon = isExpiringSoon(item);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       decoration: BoxDecoration(
-        color: lowStock ? const Color(0xFFFFF7E6) : softWhite,
+        color: expired
+            ? Colors.red.shade50
+            : lowStock
+                ? const Color(0xFFFFF7E6)
+                : softWhite,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: lowStock ? Colors.orange.shade200 : creamDark.withOpacity(0.65),
+          color: expired
+              ? Colors.red.shade200
+              : lowStock
+                  ? Colors.orange.shade200
+                  : creamDark.withOpacity(0.65),
         ),
         boxShadow: [
           BoxShadow(
@@ -1296,11 +1416,22 @@ class _InventoryPageState extends State<InventoryPage> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor:
-                    lowStock ? Colors.red.shade50 : mulberry.withOpacity(0.10),
+                backgroundColor: expired
+                    ? Colors.red.shade50
+                    : lowStock
+                        ? Colors.red.shade50
+                        : mulberry.withOpacity(0.10),
                 child: Icon(
-                  lowStock ? Icons.warning_amber : Icons.inventory_2,
-                  color: lowStock ? Colors.red : mulberry,
+                  expired
+                      ? Icons.event_busy
+                      : lowStock
+                          ? Icons.warning_amber
+                          : Icons.inventory_2,
+                  color: expired
+                      ? Colors.red
+                      : lowStock
+                          ? Colors.red
+                          : mulberry,
                   size: 22,
                 ),
               ),
@@ -1343,6 +1474,18 @@ class _InventoryPageState extends State<InventoryPage> {
                         ),
                         if (barcode != '-') buildSmallBadge(barcode),
                         if (supplier != '-') buildSmallBadge(supplier),
+                        if (expiryDate.isNotEmpty)
+                          buildColoredBadge(
+                            'Expiry: ${formatDisplayDate(expiryDate)}',
+                            expired
+                                ? Colors.red
+                                : expiringSoon
+                                    ? Colors.orange
+                                    : Colors.green,
+                          ),
+                        if (expired) buildColoredBadge('EXPIRED', Colors.red),
+                        if (expiringSoon)
+                          buildColoredBadge('EXPIRING SOON', Colors.orange),
                         if (lowStock) buildLowStockBadge(),
                       ],
                     ),
@@ -1399,6 +1542,30 @@ class _InventoryPageState extends State<InventoryPage> {
         'LOW STOCK',
         style: TextStyle(
           color: Colors.red,
+          fontSize: 10.5,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget buildColoredBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.22),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
           fontSize: 10.5,
           fontWeight: FontWeight.bold,
         ),

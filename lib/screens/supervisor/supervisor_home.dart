@@ -7,6 +7,7 @@ import '../common/cleaning_checklist_page.dart';
 import '../common/profile_page.dart';
 import '../common/notification_page.dart';
 import '../common/inventory_page.dart';
+import '../common/history_log_page.dart';
 import '../common/daily_stock_count_page.dart';
 import '../common/stock_adjustment_page.dart';
 import '../common/work_schedule_page.dart';
@@ -427,6 +428,15 @@ class _SupervisorHomeState extends State<SupervisorHome> {
             },
           ),
           buildHomeMenuCard(
+            icon: Icons.history,
+            title: 'History Log',
+            subtitle: 'View inventory changes and stock movements',
+            color: Colors.blueGrey,
+            onTap: () {
+              openPage(const HistoryLogPage());
+            },
+          ),
+          buildHomeMenuCard(
             icon: Icons.menu_book,
             title: 'SOP',
             subtitle: 'View cafe operation guide and recipe standard',
@@ -678,6 +688,7 @@ class _SupervisorHomeState extends State<SupervisorHome> {
                   buildDrawerItem(icon: Icons.calendar_month, title: 'Work Schedule', onTap: () { Navigator.pop(context); openPage(const WorkSchedulePage()); }),
                   buildDrawerItem(icon: Icons.menu_book, title: 'SOP', onTap: () { Navigator.pop(context); openPage(const RecipeVaultPage()); }),
                   buildDrawerItem(icon: Icons.qr_code_scanner, title: 'Stock Adjustment', onTap: () { Navigator.pop(context); openPage(const StockAdjustmentPage()); }),
+                  buildDrawerItem(icon: Icons.history, title: 'History Log', onTap: () { Navigator.pop(context); openPage(const HistoryLogPage()); }),
                   buildDrawerItem(icon: Icons.notifications, title: 'Notifications', onTap: () { Navigator.pop(context); openPage(const NotificationPage()); }),
                 ],
               ),

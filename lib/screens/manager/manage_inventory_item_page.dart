@@ -126,6 +126,66 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     return (item['barcode'] ?? '').toString();
   }
 
+  String getExpiryDate(Map<String, dynamic> item) {
+    final value = item['expiry_date'] ?? item['expiration_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  DateTime? parseDate(String value) {
+    if (value.trim().isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(value.trim());
+  }
+
+  String formatDateInput(DateTime date) {
+    return date.toIso8601String().substring(0, 10);
+  }
+
+  String formatDisplayDate(String value) {
+    final date = parseDate(value);
+
+    if (date == null) {
+      return '-';
+    }
+
+    return formatDateInput(date);
+  }
+
+  bool isExpired(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.isBefore(today);
+  }
+
+  bool isExpiringSoon(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null || isExpired(item)) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.difference(today).inDays <= 7;
+  }
+
   String getPackageName(Map<String, dynamic> item) {
     final value = item['package_name'];
 
@@ -227,11 +287,13 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         final category = getCategory(item).toLowerCase();
         final barcode = getBarcode(item).toLowerCase();
         final supplier = (item['supplier'] ?? '').toString().toLowerCase();
+        final expiryDate = getExpiryDate(item).toLowerCase();
 
         return name.contains(query) ||
             category.contains(query) ||
             barcode.contains(query) ||
-            supplier.contains(query);
+            supplier.contains(query) ||
+            expiryDate.contains(query);
       }).toList();
     }
 
@@ -522,6 +584,106 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     return false;
   }
 
+  Future<void> logItemHistory({
+    required String itemId,
+    required String movementType,
+    required String remarks,
+    num? beforeQuantity,
+    num? afterQuantity,
+    String? expiryDate,
+  }) async {
+    final user = supabase.auth.currentUser;
+
+    if (user == null || itemId.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      await supabase.from('stock_movements').insert({
+        'item_id': itemId,
+        'movement_type': movementType,
+        'quantity': 0,
+        'base_quantity': 0,
+        'before_quantity': beforeQuantity,
+        'after_quantity': afterQuantity,
+        'expiry_date':
+            expiryDate == null || expiryDate.trim().isEmpty ? null : expiryDate,
+        'remarks': remarks,
+        'performed_by': user.id,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('Failed to write inventory history log: $e');
+    }
+  }
+
+  String buildItemUpdateSummary({
+    required Map<String, dynamic> existingItem,
+    required String itemName,
+    required String category,
+    required String unit,
+    required num currentQty,
+    required num minQty,
+    required String barcode,
+    required String packageName,
+    required num packageQty,
+    required String supplier,
+    required String expiryDate,
+  }) {
+    final changes = <String>[];
+
+    void addChange(String label, String before, String after) {
+      if (before != after) {
+        changes.add('$label: $before -> $after');
+      }
+    }
+
+    addChange('Name', getItemName(existingItem), itemName);
+    addChange('Category', getCategory(existingItem), category);
+    addChange('Unit', getUnit(existingItem), unit);
+    addChange(
+      'Current quantity',
+      formatNumber(getCurrentQuantity(existingItem)),
+      formatNumber(currentQty),
+    );
+    addChange(
+      'Minimum quantity',
+      formatNumber(getMinimumQuantity(existingItem)),
+      formatNumber(minQty),
+    );
+    addChange(
+      'Barcode',
+      getBarcode(existingItem).isEmpty ? '-' : getBarcode(existingItem),
+      barcode.isEmpty ? '-' : barcode,
+    );
+    addChange('Package name', getPackageName(existingItem), packageName);
+    addChange(
+      'Package quantity',
+      formatNumber(getPackageQuantity(existingItem)),
+      formatNumber(packageQty),
+    );
+    addChange(
+      'Supplier',
+      (existingItem['supplier'] ?? '').toString().trim().isEmpty
+          ? '-'
+          : existingItem['supplier'].toString(),
+      supplier.isEmpty ? '-' : supplier,
+    );
+    addChange(
+      'Expiry date',
+      getExpiryDate(existingItem).isEmpty
+          ? '-'
+          : formatDisplayDate(getExpiryDate(existingItem)),
+      expiryDate.isEmpty ? '-' : formatDisplayDate(expiryDate),
+    );
+
+    if (changes.isEmpty) {
+      return 'Inventory item reviewed with no field changes.';
+    }
+
+    return 'Inventory item updated. ${changes.join('; ')}.';
+  }
+
   Future<bool> saveInventoryItem({
     Map<String, dynamic>? existingItem,
     required TextEditingController nameController,
@@ -533,6 +695,7 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     required TextEditingController packageNameController,
     required TextEditingController packageQtyController,
     required TextEditingController supplierController,
+    required TextEditingController expiryDateController,
   }) async {
     final user = supabase.auth.currentUser;
 
@@ -550,6 +713,7 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     final packageName = packageNameController.text.trim();
     final packageQty = num.tryParse(packageQtyController.text.trim());
     final supplier = supplierController.text.trim();
+    final expiryDate = expiryDateController.text.trim();
 
     if (itemName.isEmpty) {
       showMessage('Please enter item name.', isError: true);
@@ -586,6 +750,11 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
       return false;
     }
 
+    if (expiryDate.isNotEmpty && parseDate(expiryDate) == null) {
+      showMessage('Please enter a valid expiry date.', isError: true);
+      return false;
+    }
+
     final currentItemId = existingItem == null ? null : getItemId(existingItem);
 
     final barcodeUsed = await isBarcodeAlreadyUsed(
@@ -611,23 +780,59 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
       'package_name': packageName,
       'package_quantity': packageQty,
       'supplier': supplier.isEmpty ? null : supplier,
+      'expiry_date': expiryDate.isEmpty ? null : expiryDate,
       'is_active': true,
       'updated_at': DateTime.now().toIso8601String(),
     };
 
     try {
       if (existingItem == null) {
-        await supabase.from('inventory_items').insert({
+        final inserted = await supabase.from('inventory_items').insert({
           ...data,
           'created_by': user.id,
-        });
+        }).select('item_id').single();
+
+        await logItemHistory(
+          itemId: inserted['item_id'].toString(),
+          movementType: 'item_created',
+          remarks:
+              'Inventory item created. Initial quantity: ${formatNumber(currentQty)} $unit. Expiry date: ${expiryDate.isEmpty ? '-' : formatDisplayDate(expiryDate)}.',
+          beforeQuantity: null,
+          afterQuantity: currentQty,
+          expiryDate: expiryDate,
+        );
 
         showMessage('New inventory item added.');
       } else {
+        final itemId = getItemId(existingItem);
+        final beforeQuantity = getCurrentQuantity(existingItem);
+        final remarks = buildItemUpdateSummary(
+          existingItem: existingItem,
+          itemName: itemName,
+          category: category,
+          unit: unit,
+          currentQty: currentQty,
+          minQty: minQty,
+          barcode: barcode,
+          packageName: packageName,
+          packageQty: packageQty,
+          supplier: supplier,
+          expiryDate: expiryDate,
+        );
+
         await supabase
             .from('inventory_items')
             .update(data)
-            .eq('item_id', existingItem['item_id']);
+            .eq('item_id', itemId);
+
+        await logItemHistory(
+          itemId: itemId,
+          movementType: 'item_updated',
+          remarks: remarks,
+          beforeQuantity: beforeQuantity,
+          afterQuantity: currentQty,
+          expiryDate: expiryDate,
+        );
 
         showMessage('Inventory item updated.');
       }
@@ -660,6 +865,15 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('item_id', item['item_id']);
 
+      await logItemHistory(
+        itemId: getItemId(item),
+        movementType: 'item_deactivated',
+        remarks: 'Inventory item deactivated.',
+        beforeQuantity: getCurrentQuantity(item),
+        afterQuantity: getCurrentQuantity(item),
+        expiryDate: getExpiryDate(item),
+      );
+
       showMessage('$itemName has been deactivated.');
       await loadInventoryItems();
     } catch (e) {
@@ -673,6 +887,15 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         'is_active': true,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('item_id', item['item_id']);
+
+      await logItemHistory(
+        itemId: getItemId(item),
+        movementType: 'item_reactivated',
+        remarks: 'Inventory item reactivated.',
+        beforeQuantity: getCurrentQuantity(item),
+        afterQuantity: getCurrentQuantity(item),
+        expiryDate: getExpiryDate(item),
+      );
 
       showMessage('${getItemName(item)} has been reactivated.');
       await loadInventoryItems();
@@ -765,6 +988,41 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     return result == true;
   }
 
+  Future<void> pickExpiryDate({
+    required TextEditingController controller,
+    required VoidCallback refreshModal,
+  }) async {
+    final existingDate = parseDate(controller.text);
+    final now = DateTime.now();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: existingDate ?? now,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: mulberry,
+              onPrimary: cream,
+              surface: softWhite,
+              onSurface: mulberryDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (pickedDate == null) {
+      return;
+    }
+
+    controller.text = formatDateInput(pickedDate);
+    refreshModal();
+  }
+
   void showAddEditItemSheet({Map<String, dynamic>? item}) {
     final isEdit = item != null;
 
@@ -802,6 +1060,10 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
 
     final supplierController = TextEditingController(
       text: isEdit ? (item['supplier'] ?? '').toString() : '',
+    );
+
+    final expiryDateController = TextEditingController(
+      text: isEdit ? getExpiryDate(item) : '',
     );
 
     bool isSavingItem = false;
@@ -1006,6 +1268,26 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
                           hint: 'Example: Farm Fresh',
                           icon: Icons.local_shipping_outlined,
                         ),
+                        const SizedBox(height: 12),
+                        buildDateField(
+                          controller: expiryDateController,
+                          label: 'Expiry Date',
+                          hint: 'Select expiry date',
+                          onPickDate: () {
+                            pickExpiryDate(
+                              controller: expiryDateController,
+                              refreshModal: () {
+                                setModalState(() {});
+                              },
+                            );
+                          },
+                          onClear: expiryDateController.text.trim().isEmpty
+                              ? null
+                              : () {
+                                  expiryDateController.clear();
+                                  setModalState(() {});
+                                },
+                        ),
                         const SizedBox(height: 20),
                         SizedBox(
                           width: double.infinity,
@@ -1032,6 +1314,8 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
                                       packageQtyController:
                                           packageQtyController,
                                       supplierController: supplierController,
+                                      expiryDateController:
+                                          expiryDateController,
                                     );
 
                                     if (!mounted) return;
@@ -1119,6 +1403,73 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         prefixIcon: Icon(
           icon,
           color: mulberry,
+        ),
+        filled: true,
+        fillColor: cream,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: creamDark.withOpacity(0.9),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: mulberry,
+            width: 1.8,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget buildDateField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required VoidCallback onPickDate,
+    VoidCallback? onClear,
+  }) {
+    return TextField(
+      controller: controller,
+      readOnly: true,
+      onTap: onPickDate,
+      style: const TextStyle(
+        color: mulberryDark,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: const TextStyle(color: mulberry),
+        hintStyle: TextStyle(
+          color: Colors.grey.shade500,
+        ),
+        prefixIcon: const Icon(
+          Icons.event,
+          color: mulberry,
+        ),
+        suffixIcon: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onClear != null)
+              IconButton(
+                tooltip: 'Clear expiry date',
+                onPressed: onClear,
+                icon: const Icon(
+                  Icons.close,
+                  color: mulberry,
+                ),
+              ),
+            IconButton(
+              tooltip: 'Pick expiry date',
+              onPressed: onPickDate,
+              icon: const Icon(
+                Icons.calendar_month,
+                color: mulberry,
+              ),
+            ),
+          ],
         ),
         filled: true,
         fillColor: cream,
@@ -1358,12 +1709,17 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
     final supplier = (item['supplier'] ?? '-').toString();
     final active = getIsActive(item);
     final lowStock = isLowStock(item);
+    final expiryDate = getExpiryDate(item);
+    final expired = isExpired(item);
+    final expiringSoon = isExpiringSoon(item);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 13),
       decoration: BoxDecoration(
         color: !active
             ? Colors.grey.shade100
+            : expired
+                ? Colors.red.shade50
             : lowStock
                 ? const Color(0xFFFFF7E6)
                 : softWhite,
@@ -1371,6 +1727,8 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         border: Border.all(
           color: !active
               ? Colors.grey.shade300
+              : expired
+                  ? Colors.red.shade200
               : lowStock
                   ? Colors.orange.shade200
                   : creamDark.withOpacity(0.75),
@@ -1394,17 +1752,23 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
               CircleAvatar(
                 backgroundColor: !active
                     ? Colors.grey.shade300
+                    : expired
+                        ? Colors.red.shade50
                     : lowStock
                         ? Colors.red.shade50
                         : mulberry.withOpacity(0.12),
                 child: Icon(
                   !active
                       ? Icons.block
+                      : expired
+                          ? Icons.event_busy
                       : lowStock
                           ? Icons.warning_amber
                           : Icons.inventory_2,
                   color: !active
                       ? Colors.grey
+                      : expired
+                          ? Colors.red
                       : lowStock
                           ? Colors.red
                           : mulberry,
@@ -1443,6 +1807,18 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
                           buildSmallBadge('Barcode: $barcode'),
                         if (supplier != '-' && supplier.trim().isNotEmpty)
                           buildSmallBadge('Supplier: $supplier'),
+                        if (expiryDate.isNotEmpty)
+                          buildExpiryBadge(
+                            'Expiry: ${formatDisplayDate(expiryDate)}',
+                            expired
+                                ? Colors.red
+                                : expiringSoon
+                                    ? Colors.orange
+                                    : Colors.green,
+                          ),
+                        if (expired && active) buildWarningBadge('EXPIRED'),
+                        if (expiringSoon && active)
+                          buildExpiryBadge('EXPIRING SOON', Colors.orange),
                         if (lowStock && active) buildWarningBadge('LOW STOCK'),
                         if (!active) buildInactiveBadge('INACTIVE'),
                       ],
@@ -1564,6 +1940,30 @@ class _ManageInventoryItemPageState extends State<ManageInventoryItemPage> {
         text,
         style: const TextStyle(
           color: Colors.red,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget buildExpiryBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.22),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
           fontSize: 11,
           fontWeight: FontWeight.bold,
         ),

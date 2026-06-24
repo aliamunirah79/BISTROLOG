@@ -7,6 +7,7 @@ import '../common/cleaning_checklist_page.dart';
 import '../common/profile_page.dart';
 import '../common/notification_page.dart';
 import '../common/inventory_page.dart';
+import '../common/history_log_page.dart';
 import '../common/daily_stock_count_page.dart';
 import '../common/work_schedule_page.dart';
 
@@ -568,6 +569,14 @@ class _StaffHomeState extends State<StaffHome> {
                 openPage(const InventoryPage());
               },
             ),
+            buildDrawerItem(
+              icon: Icons.history,
+              title: 'History Log',
+              onTap: () {
+                Navigator.pop(context);
+                openPage(const HistoryLogPage());
+              },
+            ),
             const Spacer(),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
@@ -686,6 +695,15 @@ class _StaffHomeState extends State<StaffHome> {
             color: Colors.blue,
             onTap: () {
               openPage(const InventoryPage());
+            },
+          ),
+          buildHomeMenuCard(
+            icon: Icons.history,
+            title: 'History Log',
+            subtitle: 'View inventory movement records',
+            color: Colors.blueGrey,
+            onTap: () {
+              openPage(const HistoryLogPage());
             },
           ),
         ],

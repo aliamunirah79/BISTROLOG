@@ -124,6 +124,52 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     return (item['barcode'] ?? '').toString();
   }
 
+  String getExpiryDate(Map<String, dynamic> item) {
+    final value = item['expiry_date'] ?? item['expiration_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  DateTime? parseDate(String value) {
+    if (value.trim().isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(value.trim());
+  }
+
+  bool isExpired(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.isBefore(today);
+  }
+
+  bool isExpiringSoon(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null || isExpired(item)) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.difference(today).inDays <= 7;
+  }
+
   String getPackageName(Map<String, dynamic> item) {
     final value = item['package_name'];
 
@@ -220,10 +266,12 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         final name = getItemName(item).toLowerCase();
         final category = getCategory(item).toLowerCase();
         final barcode = getBarcode(item).toLowerCase();
+        final expiryDate = getExpiryDate(item).toLowerCase();
 
         return name.contains(query) ||
             category.contains(query) ||
-            barcode.contains(query);
+            barcode.contains(query) ||
+            expiryDate.contains(query);
       }).toList();
     }
 
@@ -531,6 +579,7 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         'base_quantity': baseQuantity,
         'before_quantity': currentQuantity,
         'after_quantity': afterQuantity,
+        'expiry_date': getExpiryDate(item).isEmpty ? null : getExpiryDate(item),
         'remarks': remarks.isEmpty ? null : remarks,
         'performed_by': user.id,
         'created_at': DateTime.now().toIso8601String(),
@@ -890,6 +939,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
     final packageQuantity = getPackageQuantity(item);
     final current = getCurrentQuantity(item);
     final minimum = getMinimumQuantity(item);
+    final expiryDate = getExpiryDate(item);
+    final expired = isExpired(item);
+    final expiringSoon = isExpiringSoon(item);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -952,6 +1004,17 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
               buildSmallBadge('1 $packageName = $packageQuantity $unit'),
               if (getBarcode(item).isNotEmpty)
                 buildSmallBadge('Barcode: ${getBarcode(item)}'),
+              if (expiryDate.isNotEmpty)
+                buildColoredBadge(
+                  'Expiry: $expiryDate',
+                  expired
+                      ? Colors.red
+                      : expiringSoon
+                          ? Colors.orange
+                          : Colors.green,
+                ),
+              if (expired) buildWarningBadge('EXPIRED'),
+              if (expiringSoon) buildColoredBadge('EXPIRING SOON', Colors.orange),
             ],
           ),
         ],
@@ -1205,6 +1268,9 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         final current = getCurrentQuantity(item);
         final packageName = getPackageName(item);
         final packageQuantity = getPackageQuantity(item);
+        final expiryDate = getExpiryDate(item);
+        final expired = isExpired(item);
+        final expiringSoon = isExpiringSoon(item);
         final selected =
             selectedItem != null && getItemId(selectedItem!) == itemId;
         final lowStock = isLowStock(item);
@@ -1278,6 +1344,21 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
                             buildSmallBadge(
                               '1 $packageName = $packageQuantity $unit',
                             ),
+                            if (expiryDate.isNotEmpty)
+                              buildColoredBadge(
+                                'Expiry: $expiryDate',
+                                expired
+                                    ? Colors.red
+                                    : expiringSoon
+                                        ? Colors.orange
+                                        : Colors.green,
+                              ),
+                            if (expired) buildWarningBadge('EXPIRED'),
+                            if (expiringSoon)
+                              buildColoredBadge(
+                                'EXPIRING SOON',
+                                Colors.orange,
+                              ),
                             if (lowStock) buildWarningBadge('LOW STOCK'),
                           ],
                         ),
@@ -1335,6 +1416,30 @@ class _StockAdjustmentPageState extends State<StockAdjustmentPage> {
         text,
         style: const TextStyle(
           color: Colors.red,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget buildColoredBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.22),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
           fontSize: 11,
           fontWeight: FontWeight.bold,
         ),

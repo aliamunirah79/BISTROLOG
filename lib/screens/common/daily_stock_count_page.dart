@@ -266,6 +266,52 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     return (item['supplier'] ?? item['supplier_name'] ?? '').toString();
   }
 
+  String getExpiryDate(Map<String, dynamic> item) {
+    final value = item['expiry_date'] ?? item['expiration_date'];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return '';
+    }
+
+    return value.toString().substring(0, 10);
+  }
+
+  DateTime? parseDate(String value) {
+    if (value.trim().isEmpty) {
+      return null;
+    }
+
+    return DateTime.tryParse(value.trim());
+  }
+
+  bool isExpired(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.isBefore(today);
+  }
+
+  bool isExpiringSoon(Map<String, dynamic> item) {
+    final expiry = parseDate(getExpiryDate(item));
+
+    if (expiry == null || isExpired(item)) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final expiryDay = DateTime(expiry.year, expiry.month, expiry.day);
+
+    return expiryDay.difference(today).inDays <= 7;
+  }
+
   num getCurrentQuantity(Map<String, dynamic> item) {
     final value = item['current_quantity'] ??
         item['quantity'] ??
@@ -370,11 +416,13 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
       final category = getCategory(item).toLowerCase();
       final barcode = getBarcode(item).toLowerCase();
       final supplier = getSupplier(item).toLowerCase();
+      final expiryDate = getExpiryDate(item).toLowerCase();
 
       return name.contains(query) ||
           category.contains(query) ||
           barcode.contains(query) ||
-          supplier.contains(query);
+          supplier.contains(query) ||
+          expiryDate.contains(query);
     }).toList();
   }
 
@@ -1528,6 +1576,9 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
     final currentStock = getCurrentQuantity(item);
     final minimumStock = getMinimumQuantity(item);
     final barcode = getBarcode(item);
+    final expiryDate = getExpiryDate(item);
+    final expired = isExpired(item);
+    final expiringSoon = isExpiringSoon(item);
 
     final entered = enteredQuantities[itemId];
     final saved = isItemSaved(itemId);
@@ -1624,6 +1675,18 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
                         buildSmallBadge('Stock: $currentStock $unit'),
                         buildSmallBadge('Min: $minimumStock $unit'),
                         if (barcode.isNotEmpty) buildSmallBadge(barcode),
+                        if (expiryDate.isNotEmpty)
+                          buildColoredBadge(
+                            'Expiry: $expiryDate',
+                            expired
+                                ? Colors.red
+                                : expiringSoon
+                                    ? Colors.orange
+                                    : Colors.green,
+                          ),
+                        if (expired) buildColoredBadge('EXPIRED', Colors.red),
+                        if (expiringSoon)
+                          buildColoredBadge('EXPIRING SOON', Colors.orange),
                         if (openingQty != null)
                           buildSmallBadge(
                             'Opening: ${formatNumber(openingQty)} $unit',
@@ -1728,6 +1791,30 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
           color: Colors.grey.shade700,
           fontSize: 10.5,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget buildColoredBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withOpacity(0.22),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 10.5,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );

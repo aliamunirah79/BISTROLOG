@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../manager/manager_home.dart';
 import '../supervisor/supervisor_home.dart';
 import '../staff/staff_home.dart';
-import 'register_page.dart';
+import 'change_password_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -65,7 +65,7 @@ class _LoginPageState extends State<LoginPage> {
 
       final profile = await supabase
           .from('profiles')
-          .select('role, full_name, is_active, staff_status')
+          .select('role, full_name, is_active, staff_status, must_change_password')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -85,6 +85,20 @@ class _LoginPageState extends State<LoginPage> {
         );
         return;
       }
+
+      final mustChangePassword = profile['must_change_password'] == true;
+
+        if (mustChangePassword) {
+          if (!mounted) return;
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ChangePasswordPage(),
+            ),
+          );
+          return;
+        }
 
       final role = (profile['role'] ?? '').toString();
       final fullName = (profile['full_name'] ?? '').toString();
@@ -174,14 +188,6 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  void goToRegisterPage() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const RegisterPage(),
-      ),
-    );
-  }
 
   Widget buildLogo() {
     return Container(
@@ -283,184 +289,134 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget buildLoginCard() {
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(maxWidth: 400),
-      padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
-      decoration: BoxDecoration(
-        color: softWhite,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: creamDark.withOpacity(0.62),
+ Widget buildLoginCard() {
+  return Container(
+    width: double.infinity,
+    constraints: const BoxConstraints(maxWidth: 400),
+    padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
+    decoration: BoxDecoration(
+      color: softWhite,
+      borderRadius: BorderRadius.circular(24),
+      border: Border.all(
+        color: creamDark.withOpacity(0.62),
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: mulberryDark.withOpacity(0.15),
+          blurRadius: 28,
+          offset: const Offset(0, 11),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: mulberryDark.withOpacity(0.15),
-            blurRadius: 28,
-            offset: const Offset(0, 11),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Welcome back',
+          style: TextStyle(
+            fontFamily: 'Georgia',
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: mulberryDark,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Welcome back',
-            style: TextStyle(
-              fontFamily: 'Georgia',
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: mulberryDark,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Sign in to your BISTROLOG account',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade500,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 24),
+        buildTextField(
+          controller: emailController,
+          label: 'Email',
+          icon: Icons.email_outlined,
+          keyboardType: TextInputType.emailAddress,
+        ),
+        const SizedBox(height: 16),
+        buildTextField(
+          controller: passwordController,
+          label: 'Password',
+          icon: Icons.lock_outline,
+          obscure: obscurePassword,
+          suffix: IconButton(
+            icon: Icon(
+              obscurePassword
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+              color: mulberry,
+              size: 20,
             ),
+            onPressed: isLoading
+                ? null
+                : () {
+                    setState(() {
+                      obscurePassword = !obscurePassword;
+                    });
+                  },
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Sign in to your BISTROLOG account',
-            style: TextStyle(
-              fontSize: 13,
-              color: Colors.grey.shade500,
-              fontWeight: FontWeight.w500,
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: isLoading ? null : resetPassword,
+            style: TextButton.styleFrom(
+              foregroundColor: mulberry,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 38),
             ),
-          ),
-          const SizedBox(height: 24),
-          buildTextField(
-            controller: emailController,
-            label: 'Email',
-            icon: Icons.email_outlined,
-            keyboardType: TextInputType.emailAddress,
-          ),
-          const SizedBox(height: 16),
-          buildTextField(
-            controller: passwordController,
-            label: 'Password',
-            icon: Icons.lock_outline,
-            obscure: obscurePassword,
-            suffix: IconButton(
-              icon: Icon(
-                obscurePassword
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                color: mulberry,
-                size: 20,
-              ),
-              onPressed: isLoading
-                  ? null
-                  : () {
-                      setState(() {
-                        obscurePassword = !obscurePassword;
-                      });
-                    },
-            ),
-          ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: isLoading ? null : resetPassword,
-              style: TextButton.styleFrom(
-                foregroundColor: mulberry,
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 38),
-              ),
-              child: const Text(
-                'Forgot password?',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
+            child: const Text(
+              'Forgot password?',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 52,
-            child: ElevatedButton(
-              onPressed: isLoading ? null : loginUser,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: mulberry,
-                foregroundColor: cream,
-                disabledBackgroundColor: mulberry.withOpacity(0.45),
-                elevation: 5,
-                shadowColor: mulberryDark.withOpacity(0.45),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          height: 52,
+          child: ElevatedButton(
+            onPressed: isLoading ? null : loginUser,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: mulberry,
+              foregroundColor: cream,
+              disabledBackgroundColor: mulberry.withOpacity(0.45),
+              elevation: 5,
+              shadowColor: mulberryDark.withOpacity(0.45),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
-              child: isLoading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: cream,
-                      ),
-                    )
-                  : const Text(
-                      'Sign In',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.1,
-                      ),
+            ),
+            child: isLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: cream,
                     ),
-            ),
-          ),
-          const SizedBox(height: 17),
-          Row(
-            children: [
-              const Expanded(
-                child: Divider(color: creamDark),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  'or',
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: 13,
+                  )
+                : const Text(
+                    'Sign In',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.1,
+                    ),
                   ),
-                ),
-              ),
-              const Expanded(
-                child: Divider(color: creamDark),
-              ),
-            ],
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                "Don't have an account?",
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              TextButton(
-                onPressed: isLoading ? null : goToRegisterPage,
-                style: TextButton.styleFrom(
-                  foregroundColor: mulberry,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  minimumSize: const Size(0, 36),
-                ),
-                child: const Text(
-                  'Create staff account',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
+          
 
   Widget buildFooterText() {
     return Padding(
