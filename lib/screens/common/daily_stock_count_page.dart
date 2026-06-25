@@ -507,6 +507,8 @@ class _DailyStockCountPageState extends State<DailyStockCountPage> {
   }
 
   Future<void> changeCountType(DailyCountType type) async {
+  if (!mounted) return;
+
     setState(() {
       selectedType = type;
       selectedCategory = 'All';
